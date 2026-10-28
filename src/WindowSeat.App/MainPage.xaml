@@ -119,7 +119,7 @@
                     </Grid>
 
                     <Grid ColumnDefinitions="*,Auto">
-                        <Label Text="Plocha Vltavy (test přesnosti)" Style="{StaticResource SettingLabel}" />
+                        <Label Text="Vltava a mosty (test přesnosti)" Style="{StaticResource SettingLabel}" />
                         <Switch x:Name="WaterSwitch" Grid.Column="1" Toggled="OnWaterToggled" />
                     </Grid>
 

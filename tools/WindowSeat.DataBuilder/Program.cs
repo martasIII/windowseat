@@ -13,6 +13,16 @@ using WindowSeat.Core.Places;
 //   vrstvy: čárkami oddělené druhy (Peak,Tower,Castle…); bez nich všechny. Pro „okolí“ s velkým poloměrem
 //   se hodí jen to, co je vidět zdaleka.
 
+if (args is ["bridges", var bridgesOutput, ..])
+{
+    // Obrysy mostovek z OpenStreetMap: bridges <výstup.json> [jih západ sever východ], výchozí Praha.
+    var box = args.Length >= 6 ? args[2..6].Select(Parse).ToArray() : [49.96, 14.30, 50.16, 14.48];
+    using var bridgesHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+    bridgesHttp.DefaultRequestHeaders.UserAgent.ParseAdd("WindowSeat-DataBuilder/0.1 (https://martinhajek.dev)");
+    await Water.BuildBridgesAsync(bridgesHttp, bridgesOutput, box);
+    return 0;
+}
+
 if (args is ["water", var waterOutput, ..])
 {
     // Vodní plochy z OpenStreetMap: water <výstup.json> [jih západ sever východ], výchozí Praha.
@@ -386,6 +396,65 @@ internal static class Water
         }
 
         throw new HttpRequestException("Žádný server Overpass neodpověděl.");
+    }
+
+    /// <summary>
+    /// Obrysy mostovek (man_made=bridge) s názvem. Výška mostovky: nejvyšší terén na obrysu, tedy břeh nebo svah
+    /// údolí; uprostřed rozpětí model terénu ukazuje hladinu nebo dno údolí.
+    /// </summary>
+    public static async Task BuildBridgesAsync(HttpClient http, string output, double[] box)
+    {
+        var bbox = FormattableString.Invariant($"{box[0]},{box[1]},{box[2]},{box[3]}");
+        var query = $"""
+            [out:json][timeout:120];
+            ( way["man_made"="bridge"]["name"]({bbox});
+              relation["man_made"="bridge"]["name"]({bbox}); );
+            out geom;
+            """;
+
+        Console.WriteLine("OpenStreetMap: obrysy mostů…");
+        using var json = await OverpassAsync(http, query);
+
+        var bridges = new List<(string Name, List<List<GeoPoint>> Rings)>();
+        foreach (var element in json.RootElement.GetProperty("elements").EnumerateArray())
+        {
+            var name = element.GetProperty("tags").GetProperty("name").GetString()!;
+
+            // Zbytek zaniklého Juditina mostu je v datech taky, ale vidět není.
+            if (name.Contains("Juditin", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var pieces = element.GetProperty("type").GetString() == "way"
+                ? [Geometry(element)]
+                : element.GetProperty("members").EnumerateArray()
+                    .Where(m => m.GetProperty("type").GetString() == "way" && m.TryGetProperty("geometry", out _))
+                    .Select(Geometry)
+                    .ToList();
+
+            var rings = Stitch(pieces).Select(r => Polyline.Simplify(r, 2).ToList()).Where(r => r.Count >= 3).ToList();
+            if (rings.Count > 0)
+                bridges.Add((name, rings));
+        }
+
+        Console.WriteLine($"  {bridges.Count} mostů");
+        var all = bridges.SelectMany(b => b.Rings).SelectMany(r => r).ToList();
+        var heights = await Terrain.ElevationsAsync(http, all);
+        var index = 0;
+
+        var catalog = new WaterCatalog(
+            "Mosty: © přispěvatelé OpenStreetMap (ODbL). Výška: EU-DEM v1.1 (Copernicus).",
+            bridges.Select(b =>
+            {
+                var ringHeights = b.Rings.Select(r => r.Select(_ => heights[index++] ?? 190).ToList()).ToList();
+                var deck = ringHeights.SelectMany(h => h).Max();
+                return new WaterArea(b.Name, b.Rings.Select(r => (IReadOnlyList<GeoPoint>)r.Select(p => p with { AltitudeMeters = deck }).ToList()).ToList());
+            }).ToList());
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+        await using (var file = File.Create(output))
+            await catalog.WriteAsync(file);
+
+        Console.WriteLine($"Uloženo do {output} ({new FileInfo(output).Length / 1024} kB)");
     }
 
     private static List<GeoPoint> Geometry(JsonElement way) => way.GetProperty("geometry").EnumerateArray()

@@ -49,6 +49,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     private double _rangeKm = ViewRange.DefaultKm;
     private IReadOnlyList<WaterArea> _water = [];
     private List<List<LineOfSight[]>> _waterSightings = [];
+    private IReadOnlyList<WaterArea> _bridges = [];
+    private List<(string? Name, List<LineOfSight[]> Rings)> _bridgeSightings = [];
     private GeoPoint? _observer;
     private List<(Place Place, LineOfSight Los)> _sightings = [];
 
@@ -74,6 +76,18 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             _observer = value;
             _sightings = Sightings(value);
             _waterSightings = WaterSightings(value);
+            _bridgeSightings = AreaSightings(_bridges, value);
+        }
+    }
+
+    /// <summary>Obrysy mostovek, kreslené přes řeku; zaměřený most se zvýrazní.</summary>
+    public IReadOnlyList<WaterArea> Bridges
+    {
+        get => _bridges;
+        set
+        {
+            _bridges = value;
+            _bridgeSightings = AreaSightings(value, _observer);
         }
     }
 
@@ -177,7 +191,10 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         UpdateFan(markers, focused, centre);
 
         if (ShowWater)
+        {
             DrawWater(canvas, pose, projector, dirtyRect);
+            DrawBridges(canvas, pose, projector, dirtyRect, Focused ?? Highlighted);
+        }
 
         canvas.Font = LabelFont;
         DrawFanBackdrop(canvas, markers);
@@ -267,6 +284,51 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             canvas.DrawPath(path);
         }
     }
+
+    /// <summary>Mostovky světlé s tmavým obrysem; most, na který míří kroužek, oranžově.</summary>
+    private void DrawBridges(ICanvas canvas, CameraPose pose, ScreenProjector projector, RectF screen, Place? focused)
+    {
+        var focusedBridge = focused is { Kind: PlaceKind.Bridge } ? focused.Name : null;
+
+        foreach (var (name, rings) in _bridgeSightings)
+        {
+            var path = Path(rings, pose, projector, screen);
+            if (path.Count == 0)
+                continue;
+
+            var highlighted = focusedBridge is not null && string.Equals(name, focusedBridge, StringComparison.OrdinalIgnoreCase);
+            canvas.FillColor = highlighted ? Color.FromRgba(216, 90, 48, 200) : Color.FromRgba(255, 255, 255, 150);
+            canvas.StrokeColor = highlighted ? Color.FromArgb("#712B13") : Color.FromRgba(68, 68, 65, 200);
+            canvas.StrokeSize = highlighted ? 2 : 1;
+            canvas.FillPath(path, WindingMode.EvenOdd);
+            canvas.DrawPath(path);
+        }
+    }
+
+    private static PathF Path(List<LineOfSight[]> rings, CameraPose pose, ScreenProjector projector, RectF screen)
+    {
+        var path = new PathF();
+        foreach (var ring in rings)
+        {
+            var points = projector.ProjectPolygon(pose, ring, screen.Width, screen.Height);
+            if (points.Count < 3)
+                continue;
+
+            path.MoveTo((float)points[0].X, (float)points[0].Y);
+            foreach (var point in points.Skip(1))
+                path.LineTo((float)point.X, (float)point.Y);
+            path.Close();
+        }
+
+        return path;
+    }
+
+    private static List<(string? Name, List<LineOfSight[]> Rings)> AreaSightings(IReadOnlyList<WaterArea> areas, GeoPoint? observer) =>
+        observer is not { } from
+            ? []
+            : areas
+                .Select(a => (a.Name, a.Rings.Select(r => r.Select(p => LineOfSight.Between(from, p)).ToArray()).ToList()))
+                .ToList();
 
     private List<List<LineOfSight[]>> WaterSightings(GeoPoint? observer) =>
         observer is not { } from

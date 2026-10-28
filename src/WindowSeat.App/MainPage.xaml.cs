@@ -161,6 +161,8 @@ public partial class MainPage : ContentPage
 
 			await using (var water = await FileSystem.OpenAppPackageFileAsync("places/vltava.json"))
 				_overlay.Water = (await WaterCatalog.ReadAsync(water)).Areas;
+			await using (var bridges = await FileSystem.OpenAppPackageFileAsync("places/mosty.json"))
+				_overlay.Bridges = (await WaterCatalog.ReadAsync(bridges)).Areas;
 			DataLabel.Text = $"{string.Join(" + ", regions)}: {_overlay.Places.Count} míst. {DataLabel.Text}";
 			_placesLoaded = true;
 		}
