@@ -46,6 +46,19 @@ public class LabelLayoutTests
     }
 
     [Fact]
+    public void Label_steps_over_an_obstacle_such_as_a_vertical_peak_label()
+    {
+        // Spodek svislého popisku vrcholu zasahuje do prvních dvou pater nad mostem (ta jsou 468–488 a 444–464).
+        var peakColumn = (Left: 290.0, Top: 455.0, Right: 314.0, Bottom: 490.0);
+
+        var placed = LabelLayout.Arrange(
+            [new LabelLayout.Request<string>("most", new ScreenPoint(300, 520), 5)],
+            Width, Height, obstacles: [peakColumn]);
+
+        Assert.Equal(2, placed.Single().Level);
+    }
+
+    [Fact]
     public void Labels_that_do_not_fit_any_floor_are_dropped_least_important_first()
     {
         var requests = Enumerable.Range(1, 6)

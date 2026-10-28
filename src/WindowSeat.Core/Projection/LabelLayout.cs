@@ -12,13 +12,15 @@ public static class LabelLayout
     /// <param name="Level">O kolik pater je popisek nad základní polohou; 0 = hned nad cílem.</param>
     public sealed record Placed<T>(T Item, ScreenPoint Anchor, int Level, double Width);
 
+    /// <param name="obstacles">Plochy, kam popisky nesmí (třeba svislé popisky vrcholů v pruhu nahoře).</param>
     public static IReadOnlyList<Placed<T>> Arrange<T>(
         IEnumerable<Request<T>> requests,
         double labelWidth,
         double labelHeight,
-        int maxLevels = 4)
+        int maxLevels = 4,
+        IEnumerable<(double Left, double Top, double Right, double Bottom)>? obstacles = null)
     {
-        var occupied = new List<(double Left, double Top, double Right, double Bottom)>();
+        var occupied = new List<(double Left, double Top, double Right, double Bottom)>(obstacles ?? []);
         var placed = new List<Placed<T>>();
 
         foreach (var request in requests.OrderByDescending(r => r.Importance))

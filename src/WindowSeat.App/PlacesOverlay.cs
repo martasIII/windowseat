@@ -110,7 +110,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             if (projector.Project(pose, los, dirtyRect.Width, dirtyRect.Height) is not { } point)
                 continue;
 
-            var text = place.Kind == PlaceKind.CelestialBody ? place.Name : $"{place.Name} · {Distance(los)}";
+            // Nezlomitelné mezery kolem tečky a před „km“: Android jinak zalamuje i krátký popisek.
+            var text = place.Kind == PlaceKind.CelestialBody ? place.Name : $"{place.Name} · {Distance(los)}";
             var label = new Label(place, los, text, TextWidth(canvas, text));
             var score = place == Highlighted ? double.MaxValue : Layers.Score(place, los.DistanceMeters);
 
@@ -120,15 +121,17 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
                 others.Add(new(label, point, score, label.TextWidth + 8));
         }
 
+        var peakColumns = new List<(double Left, double Top, double Right, double Bottom)>();
         foreach (var slot in SkylineLayout.Arrange(peaks, dirtyRect.Width, ColumnWidth))
-            DrawVertical(canvas, slot);
+            peakColumns.Add(DrawVertical(canvas, slot));
 
-        foreach (var placed in LabelLayout.Arrange(others, 200, LabelHeight))
+        // Vodorovné popisky se svislým v pruhu vyhnou.
+        foreach (var placed in LabelLayout.Arrange(others, 200, LabelHeight, obstacles: peakColumns))
             DrawHorizontal(canvas, placed, dirtyRect.Width);
     }
 
-    /// <summary>Vrchol: svislý text v pruhu nahoře, čára dolů k vrcholu.</summary>
-    private void DrawVertical(ICanvas canvas, SkylineLayout.Slot<Label> slot)
+    /// <summary>Vrchol: svislý text v pruhu nahoře, čára dolů k vrcholu. Vrací plochu textu.</summary>
+    private (double Left, double Top, double Right, double Bottom) DrawVertical(ICanvas canvas, SkylineLayout.Slot<Label> slot)
     {
         var label = slot.Item;
         var highlighted = label.Place == Highlighted;
@@ -146,6 +149,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
         var bounds = new RectF(x - ColumnWidth / 2, BandBottom - length, ColumnWidth, length);
         _drawn.Add(new DrawnLabel(label.Place, label.Los, slot.Anchor, bounds));
+        return (bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
     }
 
     /// <summary>Ostatní místa: vodorovný text těsně nad cílem, při nedostatku místa o patro výš.</summary>
@@ -188,6 +192,9 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     private static void DrawOutlinedText(ICanvas canvas, string text, float x, float baseline, HorizontalAlignment alignment, bool highlighted)
     {
+        // Popisek je vždy jeden řádek; bez nezlomitelných mezer by ho Android mohl zalomit.
+        text = text.Replace(' ', ' ');
+
         canvas.FontColor = Colors.White;
         foreach (var (dx, dy) in Halo)
             canvas.DrawString(text, x + dx, baseline + dy, alignment);
@@ -238,8 +245,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     }
 
     private static string Distance(LineOfSight los) => los.DistanceMeters < 10_000
-        ? $"{los.DistanceMeters / 1000:0.0} km"
-        : $"{los.DistanceMeters / 1000:0} km";
+        ? $"{los.DistanceMeters / 1000:0.0} km"
+        : $"{los.DistanceMeters / 1000:0} km";
 
     public static Color ColorOf(PlaceKind kind) => kind switch
     {
