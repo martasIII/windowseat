@@ -6,10 +6,11 @@ namespace WindowSeat.Core.Projection;
 /// </summary>
 public static class LabelLayout
 {
-    public sealed record Request<T>(T Item, ScreenPoint Anchor, int Importance);
+    /// <param name="Width">Šířka popisku; 0 = výchozí šířka z <see cref="Arrange{T}"/>.</param>
+    public sealed record Request<T>(T Item, ScreenPoint Anchor, int Importance, double Width = 0);
 
     /// <param name="Level">O kolik pater je popisek nad základní polohou; 0 = hned nad cílem.</param>
-    public sealed record Placed<T>(T Item, ScreenPoint Anchor, int Level);
+    public sealed record Placed<T>(T Item, ScreenPoint Anchor, int Level, double Width);
 
     public static IReadOnlyList<Placed<T>> Arrange<T>(
         IEnumerable<Request<T>> requests,
@@ -22,14 +23,15 @@ public static class LabelLayout
 
         foreach (var request in requests.OrderByDescending(r => r.Importance))
         {
+            var width = request.Width > 0 ? request.Width : labelWidth;
             for (var level = 0; level < maxLevels; level++)
             {
-                var box = Box(request.Anchor, level, labelWidth, labelHeight);
+                var box = Box(request.Anchor, level, width, labelHeight);
                 if (occupied.Any(o => Overlaps(o, box)))
                     continue;
 
                 occupied.Add(box);
-                placed.Add(new Placed<T>(request.Item, request.Anchor, level));
+                placed.Add(new Placed<T>(request.Item, request.Anchor, level, width));
                 break;
             }
         }

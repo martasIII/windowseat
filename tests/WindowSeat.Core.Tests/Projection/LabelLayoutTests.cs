@@ -33,6 +33,19 @@ public class LabelLayoutTests
     }
 
     [Fact]
+    public void Narrow_labels_fit_side_by_side_where_default_width_would_collide()
+    {
+        var placed = LabelLayout.Arrange(
+        [
+            new LabelLayout.Request<string>("Vít", new ScreenPoint(300, 500), 60, Width: 60),
+            new LabelLayout.Request<string>("Týn", new ScreenPoint(380, 500), 38, Width: 60),
+        ], Width, Height);
+
+        Assert.All(placed, p => Assert.Equal(0, p.Level));
+        Assert.All(placed, p => Assert.Equal(60, p.Width));
+    }
+
+    [Fact]
     public void Labels_that_do_not_fit_any_floor_are_dropped_least_important_first()
     {
         var requests = Enumerable.Range(1, 6)

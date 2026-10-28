@@ -28,6 +28,7 @@ public partial class MainPage : ContentPage
 	private (GeoPoint At, double Separation)? _geoid;
 	private bool _geoidPending;
 	private bool _loadingSettings;
+	private bool _placesLoaded;
 
 	private CalibrationStep _calibration = CalibrationStep.Off;
 
@@ -63,6 +64,7 @@ public partial class MainPage : ContentPage
 	{
 		base.OnAppearing();
 		_cts = new CancellationTokenSource();
+		await LoadPlacesAsync();
 		UpdateObserver();
 
 		if (await Permissions.RequestAsync<Permissions.Camera>() == PermissionStatus.Granted)
@@ -88,6 +90,26 @@ public partial class MainPage : ContentPage
 		Geolocation.Default.StopListeningForeground();
 
 		base.OnDisappearing();
+	}
+
+	/// <summary>Offline katalog oblasti, doplněný o ruční testovací místa, která v něm chybí.</summary>
+	private async Task LoadPlacesAsync()
+	{
+		if (_placesLoaded)
+			return;
+
+		try
+		{
+			await using var stream = await FileSystem.OpenAppPackageFileAsync("places/praha.json");
+			var catalog = await PlaceCatalog.ReadAsync(stream);
+			_overlay.Places = catalog.MergedWith(TestPlaces.All);
+			DataLabel.Text = $"{catalog.Region}: {_overlay.Places.Count} míst. {catalog.Attribution}";
+			_placesLoaded = true;
+		}
+		catch (Exception ex)
+		{
+			ShowStatus($"Data míst: {ex.Message}");
+		}
 	}
 
 	private async Task StartCameraAsync(CancellationToken token)

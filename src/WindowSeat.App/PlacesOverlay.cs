@@ -8,14 +8,43 @@ namespace WindowSeat.App;
 /// <summary>Kreslí popisky míst přes náhled kamery podle aktuální pózy a polohy.</summary>
 public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 {
-    private const float LabelWidth = 220;
+    private const float FontSize = 15;
     private const float LabelHeight = 24;
+    private const float LabelPadding = 16;
+    private const float MaxLabelWidth = 300;
 
     private readonly List<DrawnLabel> _drawn = [];
+    private readonly Dictionary<string, float> _textWidths = [];
+
+    private IReadOnlyList<Place> _places = places;
+    private GeoPoint? _observer;
+    private List<(Place Place, LineOfSight Los)> _sightings = [];
+
+    public IReadOnlyList<Place> Places
+    {
+        get => _places;
+        set
+        {
+            _places = value;
+            _sightings = Sightings(_observer);
+        }
+    }
+
+    /// <summary>Poloha pozorovatele; směry k místům se přepočítají jen při její změně, ne v každém snímku.</summary>
+    public GeoPoint? Observer
+    {
+        get => _observer;
+        set
+        {
+            if (_observer == value)
+                return;
+
+            _observer = value;
+            _sightings = Sightings(value);
+        }
+    }
 
     public CameraPose? Pose { get; set; }
-
-    public GeoPoint? Observer { get; set; }
 
     public double HorizontalFieldOfViewDegrees { get; set; } = 50;
 
@@ -31,7 +60,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     public void Draw(ICanvas canvas, RectF dirtyRect)
     {
         _drawn.Clear();
-        if (Pose is not { } pose || Observer is not { } observer || dirtyRect.Width <= 0)
+        if (Pose is not { } pose || dirtyRect.Width <= 0)
             return;
 
         // Svislý úhel dopočítáme z poměru stran, pixely náhledu jsou čtvercové.
@@ -40,39 +69,61 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         var projector = new ScreenProjector(HorizontalFieldOfViewDegrees, verticalDegrees);
         LastFrame = (projector, dirtyRect.Width, dirtyRect.Height);
 
-        var requests = new List<LabelLayout.Request<(Place Place, LineOfSight Los)>>();
-        foreach (var place in places)
-        {
-            if (!LineOfSight.IsAboveHorizon(observer, place.Location))
-                continue;
-
-            var los = LineOfSight.Between(observer, place.Location);
-            if (projector.Project(pose, los, dirtyRect.Width, dirtyRect.Height) is { } point)
-            {
-                // Vybraný cíl kalibrace musí zůstat vidět, i kdyby byl nejméně známý.
-                var importance = place == Highlighted ? int.MaxValue : place.Importance;
-                requests.Add(new((place, los), point, importance));
-            }
-        }
-
-        canvas.FontSize = 15;
+        canvas.FontSize = FontSize;
         canvas.FontColor = Colors.White;
 
-        foreach (var label in LabelLayout.Arrange(requests, LabelWidth, LabelHeight))
+        var requests = new List<LabelLayout.Request<(Place Place, LineOfSight Los, string Text)>>();
+        foreach (var (place, los) in _sightings)
         {
-            var (place, los) = label.Item;
-            var box = LabelLayout.Box(label.Anchor, label.Level, LabelWidth, LabelHeight);
+            if (projector.Project(pose, los, dirtyRect.Width, dirtyRect.Height) is not { } point)
+                continue;
+
+            var text = $"{place.Name} · {Distance(los)}";
+            var width = Math.Min(MaxLabelWidth, TextWidth(canvas, text) + LabelPadding);
+
+            // Vybraný cíl kalibrace musí zůstat vidět, i kdyby byl nejméně známý.
+            var importance = place == Highlighted ? int.MaxValue : place.Importance;
+            requests.Add(new((place, los, text), point, importance, width));
+        }
+
+        foreach (var label in LabelLayout.Arrange(requests, MaxLabelWidth, LabelHeight))
+        {
+            var (place, los, text) = label.Item;
+            var box = LabelLayout.Box(label.Anchor, label.Level, label.Width, LabelHeight);
             var centre = new ScreenPoint((box.Left + box.Right) / 2, (box.Top + box.Bottom) / 2);
 
             _drawn.Add(new DrawnLabel(place, los, label.Anchor, centre));
-            DrawLabel(canvas, place, los, label.Anchor, box, place == Highlighted);
+            DrawLabel(canvas, place, text, label.Anchor, box, place == Highlighted);
         }
     }
+
+    private List<(Place, LineOfSight)> Sightings(GeoPoint? observer) =>
+        observer is not { } from
+            ? []
+            : _places
+                .Where(p => LineOfSight.IsAboveHorizon(from, p.Location))
+                .Select(p => (p, LineOfSight.Between(from, p.Location)))
+                .ToList();
+
+    private float TextWidth(ICanvas canvas, string text)
+    {
+        if (!_textWidths.TryGetValue(text, out var width))
+        {
+            width = canvas.GetStringSize(text, Microsoft.Maui.Graphics.Font.Default, FontSize).Width;
+            _textWidths[text] = width;
+        }
+
+        return width;
+    }
+
+    private static string Distance(LineOfSight los) => los.DistanceMeters < 10_000
+        ? $"{los.DistanceMeters / 1000:0.0} km"
+        : $"{los.DistanceMeters / 1000:0} km";
 
     private static void DrawLabel(
         ICanvas canvas,
         Place place,
-        LineOfSight los,
+        string text,
         ScreenPoint anchor,
         (double Left, double Top, double Right, double Bottom) box,
         bool highlighted)
@@ -97,16 +148,12 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         canvas.FillColor = color;
         canvas.FillCircle(x, y, highlighted ? 5 : 3);
 
-        var distance = los.DistanceMeters < 10_000
-            ? $"{los.DistanceMeters / 1000:0.0} km"
-            : $"{los.DistanceMeters / 1000:0} km";
-
         var left = (float)box.Left;
         var top = (float)box.Top;
+        var width = (float)(box.Right - box.Left);
         canvas.FillColor = highlighted ? Color.FromArgb("#B3712B13") : Color.FromRgba(0, 0, 0, 0.55);
-        canvas.FillRoundedRectangle(left, top, LabelWidth, LabelHeight, 6);
-        canvas.DrawString($"{place.Name} · {distance}", left, top, LabelWidth, LabelHeight,
-            HorizontalAlignment.Center, VerticalAlignment.Center);
+        canvas.FillRoundedRectangle(left, top, width, LabelHeight, 6);
+        canvas.DrawString(text, left, top, width, LabelHeight, HorizontalAlignment.Center, VerticalAlignment.Center);
     }
 }
 

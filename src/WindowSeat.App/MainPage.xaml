@@ -128,6 +128,8 @@
                         <Button Grid.Column="1" Text="Zrušit opravu" Clicked="OnResetCorrectionClicked"
                                 BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" />
                     </Grid>
+
+                    <Label x:Name="DataLabel" TextColor="#B4B2A9" FontSize="12" Margin="0,6,0,0" />
                 </VerticalStackLayout>
             </Border>
 
