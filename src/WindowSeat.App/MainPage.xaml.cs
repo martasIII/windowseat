@@ -302,11 +302,12 @@ public partial class MainPage : ContentPage
 			return;
 		}
 
-		if (_overlay.Highlighted is not { } place || _overlay.Pose is not { } pose
-			|| _overlay.Observer is not { } observer || _overlay.LastFrame is not { } frame)
+		// Směr k cíli bereme z posledního snímku; u Slunce a Měsíce se mění s časem a polohu na Zemi nemají.
+		if (_overlay.Highlighted is not { } place || _overlay.Pose is not { } pose || _overlay.LastFrame is not { } frame
+			|| _overlay.Drawn.FirstOrDefault(d => d.Place == place) is not { } drawn)
 			return;
 
-		var target = LineOfSight.Between(observer, place.Location);
+		var target = drawn.LineOfSight;
 		_correction = _correction.CalibrateWith(pose, frame.Projector, tapped, target, frame.Width, frame.Height);
 		AppSettings.Correction = _correction;
 		ShowCorrection();

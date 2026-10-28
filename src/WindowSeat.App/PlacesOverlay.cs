@@ -2,6 +2,7 @@ using WindowSeat.Core.Geo;
 using WindowSeat.Core.Orientation;
 using WindowSeat.Core.Places;
 using WindowSeat.Core.Projection;
+using WindowSeat.Core.Sky;
 
 namespace WindowSeat.App;
 
@@ -73,12 +74,12 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         canvas.FontColor = Colors.White;
 
         var requests = new List<LabelLayout.Request<(Place Place, LineOfSight Los, string Text)>>();
-        foreach (var (place, los) in _sightings)
+        foreach (var (place, los) in _sightings.Concat(SkySightings()))
         {
             if (projector.Project(pose, los, dirtyRect.Width, dirtyRect.Height) is not { } point)
                 continue;
 
-            var text = $"{place.Name} · {Distance(los)}";
+            var text = place.Kind == PlaceKind.CelestialBody ? place.Name : $"{place.Name} · {Distance(los)}";
             var width = Math.Min(MaxLabelWidth, TextWidth(canvas, text) + LabelPadding);
 
             // Vybraný cíl kalibrace musí zůstat vidět, i kdyby byl nejméně známý.
@@ -96,6 +97,27 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             DrawLabel(canvas, place, text, label.Anchor, box, place == Highlighted);
         }
     }
+
+    /// <summary>Slunce a Měsíc nad obzorem; přednost před vším ostatním, slouží jako kalibrační cíl.</summary>
+    private IEnumerable<(Place, LineOfSight)> SkySightings()
+    {
+        if (_observer is not { } observer)
+            yield break;
+
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (place, body) in SkyPlaces)
+        {
+            var los = Ephemeris.Observe(body, observer, now);
+            if (los.ElevationDegrees > -1)
+                yield return (place, los);
+        }
+    }
+
+    private static readonly (Place Place, CelestialBody Body)[] SkyPlaces =
+    [
+        (new Place("Slunce", default, PlaceKind.CelestialBody, int.MaxValue - 1), CelestialBody.Sun),
+        (new Place("Měsíc", default, PlaceKind.CelestialBody, int.MaxValue - 1), CelestialBody.Moon),
+    ];
 
     private List<(Place, LineOfSight)> Sightings(GeoPoint? observer) =>
         observer is not { } from
@@ -135,6 +157,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
                 PlaceKind.Peak => Color.FromArgb("#EF9F27"),
                 PlaceKind.Landmark => Color.FromArgb("#5DCAA5"),
                 PlaceKind.Bridge => Color.FromArgb("#85B7EB"),
+                PlaceKind.CelestialBody => Color.FromArgb("#FAC775"),
                 _ => Colors.White,
             };
 

@@ -8,6 +8,9 @@ public enum PlaceKind
     Peak,
     Landmark,
     Bridge,
+
+    /// <summary>Slunce nebo Měsíc; polohu nemá na Zemi, ale na obloze podle času.</summary>
+    CelestialBody,
 }
 
 /// <summary>Místo, které umíme popsat: název, poloha s výškou bodu, na který se míří, a druh.</summary>
