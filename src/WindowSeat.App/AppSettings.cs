@@ -43,6 +43,42 @@ public static class AppSettings
         set => Preferences.Default.Set(nameof(HeadingMode), (int)value);
     }
 
+    /// <summary>
+    /// Ladění doma: když appka nese lokální soubor <c>dev-defaults.json</c> (v gitu ignorovaný, ať domácí poloha
+    /// nejde do veřejného repa), při prvním spuštění zapne ruční polohu a výšku podle něj. Jen jednou,
+    /// pozdější změny v nastavení zůstanou. Vrací <c>true</c>, když se něco nastavilo.
+    /// </summary>
+    public static async Task<bool> ApplyDevelopmentDefaultsAsync()
+    {
+#if DEBUG
+        const string appliedKey = "DevDefaultsApplied";
+        if (Preferences.Default.Get(appliedKey, false))
+            return false;
+
+        try
+        {
+            await using var stream = await FileSystem.OpenAppPackageFileAsync("dev-defaults.json");
+            using var json = await System.Text.Json.JsonDocument.ParseAsync(stream);
+            var root = json.RootElement;
+
+            ManualLatitude = root.GetProperty("latitude").GetDouble();
+            ManualLongitude = root.GetProperty("longitude").GetDouble();
+            ManualAltitudeMeters = root.GetProperty("altitudeMeters").GetDouble();
+            ManualPosition = true;
+            ManualAltitude = true;
+            Preferences.Default.Set(appliedKey, true);
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            return false;
+        }
+#else
+        await Task.CompletedTask;
+        return false;
+#endif
+    }
+
     /// <summary>Přednost vrstev; co uživatel nezměnil, má výchozí hodnotu.</summary>
     public static LayerWeights Layers
     {

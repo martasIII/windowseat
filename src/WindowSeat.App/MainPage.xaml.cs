@@ -102,6 +102,8 @@ public partial class MainPage : ContentPage
 	{
 		base.OnAppearing();
 		_cts = new CancellationTokenSource();
+		if (await AppSettings.ApplyDevelopmentDefaultsAsync())
+			LoadSettings();
 		await LoadPlacesAsync();
 		UpdateObserver();
 
@@ -513,6 +515,7 @@ public partial class MainPage : ContentPage
 	{
 		var layers = AppSettings.Layers;
 		_overlay.Layers = layers;
+		LayersPanel.Clear();
 
 		foreach (var kind in LayerWeights.Configurable)
 		{
