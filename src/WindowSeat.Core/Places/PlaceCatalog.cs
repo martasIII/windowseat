@@ -43,10 +43,13 @@ public sealed record PlaceCatalog(string Region, DateTimeOffset Generated, strin
     /// <summary>
     /// Spojí katalog s dalšími místy; to, co v katalogu už je (stejné místo do 150 m), se nepřidá znovu.
     /// </summary>
-    public IReadOnlyList<Place> MergedWith(IEnumerable<Place> extra) =>
+    public IReadOnlyList<Place> MergedWith(IEnumerable<Place> extra) => Merge(Places, extra);
+
+    /// <summary>Spojí dva seznamy míst; z druhého přidá jen to, co v prvním není (stejné místo do 150 m).</summary>
+    public static IReadOnlyList<Place> Merge(IReadOnlyList<Place> primary, IEnumerable<Place> extra) =>
     [
-        .. Places,
-        .. extra.Where(e => !Places.Any(p => LineOfSight.GroundDistance(p.Location, e.Location) < 150)),
+        .. primary,
+        .. extra.Where(e => !primary.Any(p => LineOfSight.GroundDistance(p.Location, e.Location) < 150)),
     ];
 
     internal sealed record CatalogFile(string Region, DateTimeOffset Generated, string Attribution, List<PlaceEntry> Places);

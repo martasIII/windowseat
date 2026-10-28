@@ -140,10 +140,20 @@ public partial class MainPage : ContentPage
 
 		try
 		{
-			await using var stream = await FileSystem.OpenAppPackageFileAsync("places/praha.json");
-			var catalog = await PlaceCatalog.ReadAsync(stream);
-			_overlay.Places = catalog.MergedWith(TestPlaces.All);
-			DataLabel.Text = $"{catalog.Region}: {_overlay.Places.Count} míst. {catalog.Attribution}";
+			// Praha podrobně (15 km) a okolí jen to, co je vidět zdaleka (100 km); ruční místa navrch, co v datech chybí.
+			IReadOnlyList<Place> places = [];
+			var regions = new List<string>();
+			foreach (var file in new[] { "places/praha.json", "places/okoli.json" })
+			{
+				await using var stream = await FileSystem.OpenAppPackageFileAsync(file);
+				var catalog = await PlaceCatalog.ReadAsync(stream);
+				places = PlaceCatalog.Merge(places, catalog.Places);
+				regions.Add(catalog.Region);
+				DataLabel.Text = catalog.Attribution;
+			}
+
+			_overlay.Places = PlaceCatalog.Merge(places, TestPlaces.All);
+			DataLabel.Text = $"{string.Join(" + ", regions)}: {_overlay.Places.Count} míst. {DataLabel.Text}";
 			_placesLoaded = true;
 		}
 		catch (Exception ex)

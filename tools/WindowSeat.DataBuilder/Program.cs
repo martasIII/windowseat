@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
 using WindowSeat.Core.Geo;
@@ -9,11 +9,13 @@ using WindowSeat.Core.Places;
 //   2. doplní výšku terénu z EU-DEM (OpenTopoData) a k ní výšku stavby, kam má popisek mířit,
 //   3. uloží JSON, který appka nosí v Resources/Raw/places.
 //
-// Použití: dotnet run --project tools/WindowSeat.DataBuilder -- <region> <šířka> <délka> <poloměr km> <výstup.json> [min. článků]
+// Použití: dotnet run --project tools/WindowSeat.DataBuilder -- <region> <šířka> <délka> <poloměr km> <výstup.json> [min. článků] [vrstvy]
+//   vrstvy: čárkami oddělené druhy (Peak,Tower,Castle…); bez nich všechny. Pro „okolí“ s velkým poloměrem
+//   se hodí jen to, co je vidět zdaleka.
 
 if (args.Length < 5)
 {
-    Console.Error.WriteLine("Použití: <region> <šířka> <délka> <poloměr km> <výstup.json> [min. článků = 3]");
+    Console.Error.WriteLine("Použití: <region> <šířka> <délka> <poloměr km> <výstup.json> [min. článků = 3] [vrstvy = všechny]");
     return 1;
 }
 
@@ -22,12 +24,15 @@ var center = new GeoPoint(Parse(args[1]), Parse(args[2]));
 var radiusKm = Parse(args[3]);
 var output = args[4];
 var minLinks = args.Length > 5 ? int.Parse(args[5], CultureInfo.InvariantCulture) : 3;
+var kinds = args.Length > 6
+    ? args[6].Split(',').Select(Enum.Parse<PlaceKind>).ToHashSet()
+    : Enum.GetValues<PlaceKind>().ToHashSet();
 
 using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
 http.DefaultRequestHeaders.UserAgent.ParseAdd("WindowSeat-DataBuilder/0.1 (https://martinhajek.dev)");
 
 Console.WriteLine($"Wikidata: {region}, {radiusKm} km kolem {center.LatitudeDegrees}, {center.LongitudeDegrees}…");
-var candidates = await Wikidata.QueryAsync(http, center, radiusKm, minLinks);
+var candidates = await Wikidata.QueryAsync(http, center, radiusKm, minLinks, kinds);
 Console.WriteLine($"  {candidates.Count} míst");
 
 Console.WriteLine("Výška terénu z EU-DEM…");
@@ -96,73 +101,146 @@ internal static class Wikidata
 
     // Vrstvy podle toho, co je z dálky vidět; pořadí řádků = přednost, když položka patří do víc tříd
     // (rozhledna je i budova, katedrála i kostel). Obecná „budova“ jen pro hodně známé stavby.
-    private const string Layers = """
-        (wd:Q12280 "Bridge" 1)
-        (wd:Q8502 "Peak" 2) (wd:Q54050 "Peak" 2)
-        (wd:Q12518 "Tower" 3) (wd:Q1440300 "Tower" 3) (wd:Q11166728 "Tower" 3) (wd:Q18142 "Tower" 3)
-        (wd:Q16970 "Church" 4) (wd:Q2977 "Church" 4) (wd:Q34627 "Church" 4) (wd:Q44613 "Church" 4) (wd:Q32815 "Church" 4)
-        (wd:Q23413 "Castle" 5) (wd:Q16560 "Castle" 5) (wd:Q751876 "Castle" 5) (wd:Q57821 "Castle" 5)
-        (wd:Q41176 "Building" 9)
-        """;
+    private static readonly (string Class, PlaceKind Kind, int Rank)[] Layers =
+    [
+        ("Q12280", PlaceKind.Bridge, 1),
+        ("Q8502", PlaceKind.Peak, 2), ("Q54050", PlaceKind.Peak, 2),
+        ("Q12518", PlaceKind.Tower, 3), ("Q1440300", PlaceKind.Tower, 3), ("Q11166728", PlaceKind.Tower, 3), ("Q18142", PlaceKind.Tower, 3),
+        ("Q16970", PlaceKind.Church, 4), ("Q2977", PlaceKind.Church, 4), ("Q34627", PlaceKind.Church, 4), ("Q44613", PlaceKind.Church, 4), ("Q32815", PlaceKind.Church, 4),
+        ("Q23413", PlaceKind.Castle, 5), ("Q16560", PlaceKind.Castle, 5), ("Q751876", PlaceKind.Castle, 5), ("Q57821", PlaceKind.Castle, 5),
+        ("Q41176", PlaceKind.Building, 9),
+    ];
 
     private const int MinBuildingLinks = 8;
 
-    public static async Task<List<Candidate>> QueryAsync(HttpClient http, GeoPoint center, double radiusKm, int minLinks)
+    /// <summary>
+    /// Místa vybraných vrstev v okruhu. Každá vrstva má vlastní dotaz; jeden dotaz přes všechny typy a jejich
+    /// podtypy služba nestihne. Velký okruh nejde přes službu „around“ (vrátila by statisíce položek),
+    /// ale přes známá místa v Česku, vzdálenost se dofiltruje až tady.
+    /// </summary>
+    /// <param name="kinds">Jen tyto vrstvy.</param>
+    public static async Task<List<Candidate>> QueryAsync(HttpClient http, GeoPoint center, double radiusKm, int minLinks, IReadOnlySet<PlaceKind> kinds)
+    {
+        // Krok A: jen položka, souřadnice, počet článků a vrstva. Každá vrstva zvlášť, jinak to služba nestihne.
+        var found = new Dictionary<string, (GeoPoint Location, int Links, PlaceKind Kind, int Rank)>();
+        foreach (var layer in Layers.Where(l => kinds.Contains(l.Kind)).GroupBy(l => l.Kind))
+        {
+            var values = string.Join(' ', layer.Select(l => $"(wd:{l.Class} \"{l.Kind}\" {l.Rank})"));
+            using var json = await SparqlAsync(http, FindQuery(center, radiusKm, values, minLinks));
+            var rows = Bindings(json).ToList();
+
+            foreach (var row in rows)
+            {
+                var item = Value(row, "item")!;
+                var rank = (int)Number(row, "rank")!.Value;
+                if (found.TryGetValue(item, out var existing) && existing.Rank <= rank)
+                    continue;
+
+                found[item] = (ParsePoint(Value(row, "coord")!), int.Parse(Value(row, "links")!, CultureInfo.InvariantCulture),
+                    Enum.Parse<PlaceKind>(Value(row, "kind")!), rank);
+            }
+
+            Console.WriteLine($"  {layer.Key}: {rows.Count} řádků");
+        }
+
+        var inRange = found
+            .Where(f => LineOfSight.GroundDistance(center, f.Value.Location) <= radiusKm * 1000)
+            .Where(f => f.Value.Kind != PlaceKind.Building || f.Value.Links >= MinBuildingLinks)
+            .ToList();
+
+        // Krok B: podrobnosti a vyřazení jen pro nalezená místa (stovky, ne statisíce).
+        var candidates = new List<Candidate>();
+        foreach (var chunk in inRange.Chunk(150))
+        {
+            using var json = await SparqlAsync(http, DetailsQuery(chunk.Select(c => c.Key)));
+            foreach (var rows in Bindings(json).GroupBy(row => Value(row, "item")!))
+            {
+                var (location, links, kind, _) = found[rows.Key];
+
+                // Zbořené a zaniklé stavby (Juditin most…) mají souřadnice taky, ale vidět nejsou.
+                // Mosty bývají zároveň „ulice“; vyřazený druh proto neplatí pro most.
+                if (rows.Any(r => Value(r, "gone") is not null)
+                    || (kind != PlaceKind.Bridge && rows.Any(r => Value(r, "excluded") is not null)))
+                    continue;
+
+                var first = rows.First();
+                var name = Value(first, "cs") ?? Value(first, "en") ?? rows.Key[(rows.Key.LastIndexOf('/') + 1)..];
+                candidates.Add(new Candidate(
+                    PlaceNames.Shorten(name),
+                    location,
+                    kind,
+                    links,
+                    rows.Select(r => Number(r, "height")).Max(),
+                    rows.Select(r => Number(r, "elevation")).Max(),
+                    Value(first, "description"),
+                    Value(first, "csWiki") ?? Value(first, "enWiki")));
+            }
+        }
+
+        return candidates;
+    }
+
+    private static string FindQuery(GeoPoint center, double radiusKm, string values, int minLinks)
     {
         var point = FormattableString.Invariant($"Point({center.LongitudeDegrees} {center.LatitudeDegrees})");
         var radius = radiusKm.ToString(CultureInfo.InvariantCulture);
 
-        var sparql = $$"""
-            SELECT ?item ?cs ?en ?description ?csWiki ?enWiki ?coord ?links ?kind ?rank ?height ?elevation WHERE {
-              SERVICE wikibase:around {
-                ?item wdt:P625 ?coord .
-                bd:serviceParam wikibase:center "{{point}}"^^geo:wktLiteral ; wikibase:radius "{{radius}}" .
-              }
-              ?item wikibase:sitelinks ?links . FILTER(?links >= {{minLinks}})
-              VALUES (?class ?kind ?rank) { {{Layers}} }
-              ?item wdt:P31/wdt:P279* ?class .
-              # Zbořené a zaniklé stavby (Juditin most…) mají souřadnice taky, ale vidět nejsou.
-              FILTER NOT EXISTS { ?item wdt:P576 ?demolished . }
-              FILTER NOT EXISTS { ?item wdt:P31/wdt:P279* wd:Q15893266 . }
-              FILTER NOT EXISTS { ?item wdt:P31 wd:Q11486300 . }
-              # Mosty bývají zároveň „ulice“; vyřazujeme proto jen to, co mostem není.
-              FILTER(?kind = "Bridge" || NOT EXISTS { VALUES ?excluded { {{Excluded}} } ?item wdt:P31 ?excluded . })
-              OPTIONAL { ?item rdfs:label ?cs FILTER(lang(?cs) = "cs") }
-              OPTIONAL { ?item rdfs:label ?en FILTER(lang(?en) = "en") }
-              OPTIONAL { ?item schema:description ?description FILTER(lang(?description) = "cs") }
-              OPTIONAL { ?csWiki schema:about ?item ; schema:isPartOf <https://cs.wikipedia.org/> . }
-              OPTIONAL { ?enWiki schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . }
-              OPTIONAL { ?item wdt:P2048 ?height }
-              OPTIONAL { ?item wdt:P2044 ?elevation }
-            }
-            """;
+        // Malý okruh přes službu „around“. Velký okruh přes známá místa v Česku; „around“ by vrátil statisíce
+        // položek. Pořadí: nejdřív podtypy, pak místa toho typu, jinak je to několikrát pomalejší.
+        return radiusKm <= 30
+            ? $$"""
+                SELECT ?item ?coord ?links ?kind ?rank WHERE {
+                  SERVICE wikibase:around {
+                    ?item wdt:P625 ?coord .
+                    bd:serviceParam wikibase:center "{{point}}"^^geo:wktLiteral ; wikibase:radius "{{radius}}" .
+                  }
+                  ?item wikibase:sitelinks ?links . FILTER(?links >= {{minLinks}})
+                  VALUES (?class ?kind ?rank) { {{values}} }
+                  ?item wdt:P31/wdt:P279* ?class .
+                }
+                """
+            : $$"""
+                SELECT ?item ?coord ?links ?kind ?rank WHERE {
+                  VALUES (?class ?kind ?rank) { {{values}} }
+                  ?type wdt:P279* ?class .
+                  ?item wdt:P31 ?type ; wdt:P17 wd:Q213 ; wdt:P625 ?coord ; wikibase:sitelinks ?links .
+                  FILTER(?links >= {{minLinks}})
+                }
+                """;
+    }
 
-        var url = "https://query.wikidata.org/sparql?format=json&query=" + Uri.EscapeDataString(sparql);
-        using var response = await http.GetAsync(url);
+    private static string DetailsQuery(IEnumerable<string> items) => $$"""
+        SELECT ?item ?cs ?en ?description ?csWiki ?enWiki ?height ?elevation ?gone ?excluded WHERE {
+          VALUES ?item { {{string.Join(' ', items.Select(i => $"wd:{i[(i.LastIndexOf('/') + 1)..]}"))}} }
+          OPTIONAL { ?item rdfs:label ?cs FILTER(lang(?cs) = "cs") }
+          OPTIONAL { ?item rdfs:label ?en FILTER(lang(?en) = "en") }
+          OPTIONAL { ?item schema:description ?description FILTER(lang(?description) = "cs") }
+          OPTIONAL { ?csWiki schema:about ?item ; schema:isPartOf <https://cs.wikipedia.org/> . }
+          OPTIONAL { ?enWiki schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . }
+          OPTIONAL { ?item wdt:P2048 ?height }
+          OPTIONAL { ?item wdt:P2044 ?elevation }
+          OPTIONAL { ?item wdt:P576 ?gone }
+          OPTIONAL { ?item wdt:P31 ?gone . ?gone wdt:P279* wd:Q15893266 . }
+          OPTIONAL { ?item wdt:P31 ?gone . FILTER(?gone = wd:Q11486300) }
+          OPTIONAL { VALUES ?excluded { {{Excluded}} } ?item wdt:P31 ?excluded . }
+        }
+        """;
+
+    private static IEnumerable<JsonElement> Bindings(JsonDocument json) =>
+        json.RootElement.GetProperty("results").GetProperty("bindings").EnumerateArray();
+
+    // Dlouhé dotazy se do adresy nemusí vejít, proto POST.
+    private static async Task<JsonDocument> SparqlAsync(HttpClient http, string sparql)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://query.wikidata.org/sparql")
+        {
+            Content = new FormUrlEncodedContent([new("query", sparql), new("format", "json")]),
+        };
+        request.Headers.Accept.ParseAdd("application/sparql-results+json");
+
+        using var response = await http.SendAsync(request);
         response.EnsureSuccessStatusCode();
-        using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
-
-        // Jedna položka přijde v několika řádcích (víc tříd, víc výšek); vrstvu bereme podle nejvyšší přednosti.
-        return json.RootElement.GetProperty("results").GetProperty("bindings").EnumerateArray()
-            .GroupBy(row => Value(row, "item")!)
-            .Select(rows =>
-            {
-                var first = rows.First();
-                var kind = Enum.Parse<PlaceKind>(Value(rows.MinBy(r => Number(r, "rank"))!, "kind")!);
-                var name = Value(first, "cs") ?? Value(first, "en") ?? rows.Key[(rows.Key.LastIndexOf('/') + 1)..];
-
-                return new Candidate(
-                    PlaceNames.Shorten(name),
-                    ParsePoint(Value(first, "coord")!),
-                    kind,
-                    int.Parse(Value(first, "links")!, CultureInfo.InvariantCulture),
-                    rows.Select(r => Number(r, "height")).Max(),
-                    rows.Select(r => Number(r, "elevation")).Max(),
-                    Value(first, "description"),
-                    Value(first, "csWiki") ?? Value(first, "enWiki"));
-            })
-            .Where(c => c.Kind != PlaceKind.Building || c.Importance >= MinBuildingLinks)
-            .ToList();
+        return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
     }
 
     private static string? Value(JsonElement row, string name) =>
