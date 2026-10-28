@@ -1,4 +1,5 @@
 using WindowSeat.Core.Orientation;
+using WindowSeat.Core.Projection;
 
 namespace WindowSeat.App;
 
@@ -39,6 +40,19 @@ public static class AppSettings
     {
         get => (HeadingMode)Preferences.Default.Get(nameof(HeadingMode), (int)HeadingMode.Compass);
         set => Preferences.Default.Set(nameof(HeadingMode), (int)value);
+    }
+
+    /// <summary>Oprava pózy z poslední kalibrace na známý cíl.</summary>
+    public static PoseCorrection Correction
+    {
+        get => new(
+            Preferences.Default.Get("CorrectionAzimuth", 0.0),
+            Preferences.Default.Get("CorrectionElevation", 0.0));
+        set
+        {
+            Preferences.Default.Set("CorrectionAzimuth", value.AzimuthDegrees);
+            Preferences.Default.Set("CorrectionElevation", value.ElevationDegrees);
+        }
     }
 
     /// <summary>Zorný úhel mezi levým a pravým okrajem obrazovky; ladí se podle známého cíle.</summary>

@@ -3,6 +3,7 @@ using CommunityToolkit.Maui.Core;
 using WindowSeat.Core.Geo;
 using WindowSeat.Core.Orientation;
 using WindowSeat.Core.Places;
+using WindowSeat.Core.Projection;
 
 namespace WindowSeat.App;
 
@@ -10,18 +11,51 @@ public partial class MainPage : ContentPage
 {
 	private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
+	// Jak daleko od popisku ještě bereme klepnutí jako výběr toho popisku.
+	private const double LabelHitRadius = 90;
+
 	private readonly PlacesOverlay _overlay = new(TestPlaces.All);
 
 	private CancellationTokenSource? _cts;
 	private Location? _gps;
 	private double? _course;
 	private double _declination;
+	private PoseCorrection _correction;
+	private (GeoPoint At, double Separation)? _geoid;
+	private bool _geoidPending;
 	private bool _loadingSettings;
+
+	private CalibrationStep _calibration = CalibrationStep.Off;
+
+	private enum CalibrationStep
+	{
+		Off,
+		PickLabel,
+		PickTarget,
+	}
 
 	public MainPage()
 	{
 		InitializeComponent();
 		Overlay.Drawable = _overlay;
+
+		OrientationSensor.Default.ReadingChanged += (_, e) =>
+		{
+			var magnetic = CameraPose.FromDeviceRotation(e.Reading.Orientation);
+			MainThread.BeginInvokeOnMainThread(() => ShowPose(magnetic));
+		};
+
+		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() =>
+		{
+			_gps = e.Location;
+
+			// Kurz má smysl jen v pohybu; při stání si necháme poslední platný.
+			if (e.Location.Course is { } course && e.Location.Speed is > 2)
+				_course = course;
+
+			UpdateObserver();
+		});
+
 		LoadSettings();
 	}
 
@@ -36,8 +70,10 @@ public partial class MainPage : ContentPage
 		else
 			ShowStatus("Bez oprávnění ke kameře není náhled.");
 
-		StartOrientation();
-		StartCompass();
+		if (OrientationSensor.Default.IsSupported)
+			OrientationSensor.Default.Start(SensorSpeed.UI);
+		else
+			PoseLabel.Text = "Orientace: senzor chybí";
 
 		if (await Permissions.RequestAsync<Permissions.LocationWhenInUse>() == PermissionStatus.Granted)
 			await StartLocationAsync();
@@ -52,8 +88,6 @@ public partial class MainPage : ContentPage
 
 		if (OrientationSensor.Default.IsMonitoring)
 			OrientationSensor.Default.Stop();
-		if (Compass.Default.IsMonitoring)
-			Compass.Default.Stop();
 		Geolocation.Default.StopListeningForeground();
 
 		base.OnDisappearing();
@@ -63,6 +97,27 @@ public partial class MainPage : ContentPage
 	{
 		try
 		{
+			// Kamera jde ovládat až po připojení nativního ovladače; dřív hlásí „Unable to retrieve Handler“.
+			if (Camera.Handler is null)
+			{
+				var attached = new TaskCompletionSource();
+				void OnHandlerChanged(object? sender, EventArgs e)
+				{
+					if (Camera.Handler is not null)
+						attached.TrySetResult();
+				}
+
+				Camera.HandlerChanged += OnHandlerChanged;
+				try
+				{
+					await attached.Task.WaitAsync(token);
+				}
+				finally
+				{
+					Camera.HandlerChanged -= OnHandlerChanged;
+				}
+			}
+
 			var cameras = await Camera.GetAvailableCameras(token);
 			Camera.SelectedCamera = cameras.FirstOrDefault(c => c.Position == CameraPosition.Rear) ?? cameras.FirstOrDefault();
 			await Camera.StartCameraPreview(token);
@@ -71,22 +126,6 @@ public partial class MainPage : ContentPage
 		{
 			ShowStatus($"Kamera: {ex.Message}");
 		}
-	}
-
-	private void StartOrientation()
-	{
-		if (!OrientationSensor.Default.IsSupported)
-		{
-			PoseLabel.Text = "Orientace: senzor chybí";
-			return;
-		}
-
-		OrientationSensor.Default.ReadingChanged += (_, e) =>
-		{
-			var magnetic = CameraPose.FromDeviceRotation(e.Reading.Orientation);
-			MainThread.BeginInvokeOnMainThread(() => ShowPose(magnetic));
-		};
-		OrientationSensor.Default.Start(SensorSpeed.UI);
 	}
 
 	private void ShowPose(CameraPose magnetic)
@@ -105,8 +144,12 @@ public partial class MainPage : ContentPage
 		{
 			// Senzor míří k magnetickému severu, místa máme vůči zeměpisnému.
 			pose = magnetic with { AzimuthDegrees = (magnetic.AzimuthDegrees + _declination + 360) % 360 };
-			source = mode == HeadingMode.Compass ? "kompas" : "kompas, kurz čeká na jízdu";
+			source = string.Format(Invariant, "kompas {0:+0.0;-0.0}° dekl.", _declination);
+			if (mode != HeadingMode.Compass)
+				source += ", kurz čeká na jízdu";
 		}
+
+		pose = _correction.ApplyTo(pose);
 
 		PoseLabel.Text = string.Format(Invariant,
 			"Směr {0,5:0.0}° ({3})\nvýška {1,5:0.0}°  náklon {2,5:0.0}°",
@@ -116,36 +159,8 @@ public partial class MainPage : ContentPage
 		Overlay.Invalidate();
 	}
 
-	private void StartCompass()
-	{
-		if (!Compass.Default.IsSupported)
-		{
-			CompassLabel.Text = "Kompas: chybí";
-			return;
-		}
-
-		Compass.Default.ReadingChanged += (_, e) =>
-		{
-			var heading = e.Reading.HeadingMagneticNorth;
-			MainThread.BeginInvokeOnMainThread(() => CompassLabel.Text = string.Format(Invariant,
-				"Kompas {0,5:0.0}° magn.  deklinace {1:+0.0;-0.0}°", heading, _declination));
-		};
-		Compass.Default.Start(SensorSpeed.UI, applyLowPassFilter: true);
-	}
-
 	private async Task StartLocationAsync()
 	{
-		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() =>
-		{
-			_gps = e.Location;
-
-			// Kurz má smysl jen v pohybu; při stání si necháme poslední platný.
-			if (e.Location.Course is { } course && e.Location.Speed is > 2)
-				_course = course;
-
-			UpdateObserver();
-		});
-
 		var started = await Geolocation.Default.StartListeningForegroundAsync(
 			new GeolocationListeningRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(1)));
 
@@ -169,14 +184,7 @@ public partial class MainPage : ContentPage
 			return;
 		}
 
-		double altitude;
-		string altitudeSource;
-		if (AppSettings.ManualAltitude)
-			(altitude, altitudeSource) = (AppSettings.ManualAltitudeMeters, "ruční");
-		else if (_gps?.Altitude is { } gpsAltitude)
-			(altitude, altitudeSource) = (gpsAltitude, "GPS");
-		else
-			(altitude, altitudeSource) = (AppSettings.ManualAltitudeMeters, "ruční, GPS ji nedává");
+		var (altitude, altitudeSource) = ObserverAltitude(latitude, longitude);
 
 		_declination = MagneticDeclination.Degrees(latitude, longitude, altitude);
 		_overlay.Observer = new GeoPoint(latitude, longitude, altitude);
@@ -186,8 +194,130 @@ public partial class MainPage : ContentPage
 		var speed = _gps?.Speed is { } s ? (s * 3.6).ToString("0", Invariant) + " km/h" : "–";
 
 		LocationLabel.Text = string.Format(Invariant,
-			"{0:0.00000}, {1:0.00000} ({2})\nvýška {3:0} m ({4})\nkurz {5}  rychlost {6}",
+			"{0:0.00000}, {1:0.00000} ({2})\nvýška {3:0} m n. m. ({4})\nkurz {5}  rychlost {6}",
 			latitude, longitude, source, altitude, altitudeSource, course, speed);
+	}
+
+	private (double Meters, string Source) ObserverAltitude(double latitude, double longitude)
+	{
+		if (AppSettings.ManualAltitude || _gps?.Altitude is not { } gpsAltitude)
+			return (AppSettings.ManualAltitudeMeters, AppSettings.ManualAltitude ? "ruční" : "ruční, GPS ji nedává");
+
+		if (_gps.AltitudeReferenceSystem != AltitudeReferenceSystem.Ellipsoid)
+			return (gpsAltitude, "GPS");
+
+		// Android hlásí výšku nad elipsoidem; převedeme ji na nadmořskou přes odchylku geoidu.
+		var here = new GeoPoint(latitude, longitude);
+		if (_geoid is { } geoid && LineOfSight.GroundDistance(geoid.At, here) < 20_000)
+			return (gpsAltitude - geoid.Separation, "GPS");
+
+		_ = RefreshGeoidAsync(here);
+		return (gpsAltitude, "GPS nad elipsoidem, přepočítávám");
+	}
+
+	private async Task RefreshGeoidAsync(GeoPoint at)
+	{
+		if (_geoidPending)
+			return;
+
+		_geoidPending = true;
+		try
+		{
+			if (await SeaLevelAltitude.GeoidSeparationAsync(at.LatitudeDegrees, at.LongitudeDegrees) is { } separation)
+			{
+				_geoid = (at, separation);
+				UpdateObserver();
+			}
+		}
+		catch (Exception ex)
+		{
+			ShowStatus($"Přepočet výšky: {ex.Message}");
+		}
+		finally
+		{
+			_geoidPending = false;
+		}
+	}
+
+	private void OnCalibrateClicked(object? sender, EventArgs e)
+	{
+		SettingsPanel.IsVisible = false;
+		SettingsButton.Text = "Nastavení";
+		SetCalibration(CalibrationStep.PickLabel, "Klepni na popisek místa, které vidíš.");
+	}
+
+	private void OnOverlayTapped(object? sender, TappedEventArgs e)
+	{
+		if (_calibration == CalibrationStep.Off || e.GetPosition(Overlay) is not { } position)
+			return;
+
+		var tapped = new ScreenPoint(position.X, position.Y);
+
+		if (_calibration == CalibrationStep.PickLabel)
+		{
+			var nearest = _overlay.Drawn
+				.Select(label => (label, distance: DistanceToLabel(label, tapped)))
+				.Where(x => x.distance < LabelHitRadius)
+				.OrderBy(x => x.distance)
+				.Select(x => x.label)
+				.FirstOrDefault();
+
+			if (nearest is null)
+				return;
+
+			_overlay.Highlighted = nearest.Place;
+			SetCalibration(CalibrationStep.PickTarget, $"Teď klepni přesně na skutečné místo: {nearest.Place.Name}.");
+			return;
+		}
+
+		if (_overlay.Highlighted is not { } place || _overlay.Pose is not { } pose
+			|| _overlay.Observer is not { } observer || _overlay.LastFrame is not { } frame)
+			return;
+
+		var target = LineOfSight.Between(observer, place.Location);
+		_correction = _correction.CalibrateWith(pose, frame.Projector, tapped, target, frame.Width, frame.Height);
+		AppSettings.Correction = _correction;
+		ShowCorrection();
+
+		_overlay.Highlighted = null;
+		SetCalibration(CalibrationStep.Off, null);
+	}
+
+	private static double DistanceToLabel(DrawnLabel label, ScreenPoint tapped)
+	{
+		// Klepnout jde na tečku i na text nad ní; bereme bližší z obou.
+		var toDot = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - tapped.Y, 2));
+		var toText = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - 44 - tapped.Y, 2));
+		return Math.Min(toDot, toText);
+	}
+
+	private void OnCalibrationCancelled(object? sender, EventArgs e)
+	{
+		_overlay.Highlighted = null;
+		SetCalibration(CalibrationStep.Off, null);
+	}
+
+	private void OnResetCorrectionClicked(object? sender, EventArgs e)
+	{
+		_correction = PoseCorrection.None;
+		AppSettings.Correction = _correction;
+		ShowCorrection();
+	}
+
+	private void SetCalibration(CalibrationStep step, string? hint)
+	{
+		_calibration = step;
+		HintLabel.Text = hint;
+		HintPanel.IsVisible = step != CalibrationStep.Off;
+		Overlay.Invalidate();
+	}
+
+	private void ShowCorrection()
+	{
+		CorrectionLabel.Text = _correction == PoseCorrection.None
+			? "Kalibrace: bez opravy"
+			: string.Format(Invariant, "Kalibrace: směr {0:+0.0;-0.0}°, výška {1:+0.0;-0.0}°",
+				_correction.AzimuthDegrees, _correction.ElevationDegrees);
 	}
 
 	private void LoadSettings()
@@ -201,6 +331,8 @@ public partial class MainPage : ContentPage
 		ManualAltitudeSwitch.IsToggled = AppSettings.ManualAltitude;
 		FieldOfViewSlider.Value = AppSettings.HorizontalFieldOfViewDegrees;
 		ApplyFieldOfView(AppSettings.HorizontalFieldOfViewDegrees);
+		_correction = AppSettings.Correction;
+		ShowCorrection();
 		_loadingSettings = false;
 	}
 

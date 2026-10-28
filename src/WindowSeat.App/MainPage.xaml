@@ -27,7 +27,11 @@
     <Grid>
         <toolkit:CameraView x:Name="Camera" />
 
-        <GraphicsView x:Name="Overlay" InputTransparent="True" />
+        <GraphicsView x:Name="Overlay">
+            <GraphicsView.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnOverlayTapped" />
+            </GraphicsView.GestureRecognizers>
+        </GraphicsView>
 
         <!-- Živé hodnoty senzorů: kontrola, že orientace a poloha dávají smysl. -->
         <Border VerticalOptions="Start"
@@ -41,7 +45,6 @@
             </Border.StrokeShape>
             <VerticalStackLayout Spacing="2">
                 <Label x:Name="PoseLabel" Style="{StaticResource Readout}" Text="Orientace: čekám…" />
-                <Label x:Name="CompassLabel" Style="{StaticResource Readout}" Text="Kompas: čekám…" />
                 <Label x:Name="LocationLabel" Style="{StaticResource Readout}" Text="Poloha: čekám…" />
                 <Label x:Name="StatusLabel" TextColor="#FFB4B2A9" FontSize="13" IsVisible="False" />
             </VerticalStackLayout>
@@ -55,6 +58,21 @@
 
         <!-- Nastavení pro ladění ze země. -->
         <VerticalStackLayout VerticalOptions="End" Margin="12,0,12,24" Spacing="8">
+            <Border x:Name="HintPanel"
+                    IsVisible="False"
+                    Padding="14,10"
+                    StrokeThickness="0"
+                    BackgroundColor="#E6712B13">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="12" />
+                </Border.StrokeShape>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <Label x:Name="HintLabel" TextColor="White" FontSize="15" VerticalOptions="Center" />
+                    <Button Grid.Column="1" Text="Zrušit" Clicked="OnCalibrationCancelled"
+                            BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" />
+                </Grid>
+            </Border>
+
             <Border x:Name="SettingsPanel"
                     IsVisible="False"
                     Padding="14,10"
@@ -103,6 +121,13 @@
                             Minimum="20"
                             Maximum="90"
                             ValueChanged="OnFieldOfViewChanged" />
+
+                    <Label x:Name="CorrectionLabel" Style="{StaticResource SettingLabel}" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                        <Button Text="Kalibrovat na cíl" Clicked="OnCalibrateClicked" />
+                        <Button Grid.Column="1" Text="Zrušit opravu" Clicked="OnResetCorrectionClicked"
+                                BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" />
+                    </Grid>
                 </VerticalStackLayout>
             </Border>
 

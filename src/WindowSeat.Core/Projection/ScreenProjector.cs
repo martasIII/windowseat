@@ -32,6 +32,21 @@ public sealed record ScreenProjector(double HorizontalFieldOfViewDegrees, double
         return new ScreenPoint(screenWidth / 2 * (1 + x), screenHeight / 2 * (1 - y));
     }
 
+    /// <summary>Opačný směr: kam ve světě míří daný bod obrazovky.</summary>
+    public SkyDirection Unproject(CameraPose camera, ScreenPoint point, double screenWidth, double screenHeight)
+    {
+        var (right, up, forward) = CameraAxes(camera);
+
+        var x = (2 * point.X / screenWidth - 1) * Math.Tan(ToRadians(HorizontalFieldOfViewDegrees) / 2);
+        var y = (1 - 2 * point.Y / screenHeight) * Math.Tan(ToRadians(VerticalFieldOfViewDegrees) / 2);
+        var direction = forward + right * x + up * y;
+        var length = Math.Sqrt(Dot(direction, direction));
+
+        var azimuth = (Math.Atan2(direction.X, direction.Y) * 180 / Math.PI + 360) % 360;
+        var elevation = Math.Asin(direction.Z / length) * 180 / Math.PI;
+        return new SkyDirection(azimuth, elevation);
+    }
+
     private static (Vector Right, Vector Up, Vector Forward) CameraAxes(CameraPose camera)
     {
         var forward = Direction(camera.AzimuthDegrees, camera.ElevationDegrees);
@@ -74,3 +89,6 @@ public sealed record ScreenProjector(double HorizontalFieldOfViewDegrees, double
 
 /// <summary>Bod na obrazovce, počátek vlevo nahoře.</summary>
 public readonly record struct ScreenPoint(double X, double Y);
+
+/// <summary>Směr ve světě: azimut od severu a úhel nad obzorem, ve stupních.</summary>
+public readonly record struct SkyDirection(double AzimuthDegrees, double ElevationDegrees);
