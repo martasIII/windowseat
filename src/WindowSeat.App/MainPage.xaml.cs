@@ -550,6 +550,21 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	private void OnRangeChanged(object? sender, EventArgs e)
+	{
+		if (_loadingSettings || RangePicker.SelectedIndex < 0)
+			return;
+
+		AppSettings.RangeKm = ViewRange.PresetsKm[RangePicker.SelectedIndex];
+		_overlay.RangeKm = AppSettings.RangeKm;
+		Overlay.Invalidate();
+	}
+
+	private static int NearestRange(double km) =>
+		ViewRange.PresetsKm
+			.Select((preset, index) => (distance: Math.Abs(preset - km), index))
+			.MinBy(x => x.distance).index;
+
 	private static int NearestLevel(double weight) =>
 		LayerWeights.Levels
 			.Select((level, index) => (distance: Math.Abs(level - weight), index))
@@ -599,6 +614,9 @@ public partial class MainPage : ContentPage
 		_correction = AppSettings.Correction;
 		ShowCorrection();
 		BuildLayerSettings();
+		RangePicker.ItemsSource = ViewRange.PresetsKm.Select(km => $"{km:0} km").ToList();
+		RangePicker.SelectedIndex = NearestRange(AppSettings.RangeKm);
+		_overlay.RangeKm = AppSettings.RangeKm;
 		_loadingSettings = false;
 	}
 

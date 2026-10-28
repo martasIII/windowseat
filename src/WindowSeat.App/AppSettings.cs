@@ -79,6 +79,13 @@ public static class AppSettings
 #endif
     }
 
+    /// <summary>Do jaké vzdálenosti ukazovat místa (km); vrcholy dvojnásobně.</summary>
+    public static double RangeKm
+    {
+        get => Preferences.Default.Get(nameof(RangeKm), ViewRange.DefaultKm);
+        set => Preferences.Default.Set(nameof(RangeKm), value);
+    }
+
     /// <summary>Přednost vrstev; co uživatel nezměnil, má výchozí hodnotu.</summary>
     public static LayerWeights Layers
     {

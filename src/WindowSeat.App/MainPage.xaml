@@ -111,7 +111,14 @@
                 </Border.StrokeShape>
                 <ScrollView MaximumHeightRequest="560">
                 <VerticalStackLayout Spacing="6">
-                    <Label Text="Vrstvy a jejich přednost" Style="{StaticResource SettingLabel}" FontAttributes="Bold" />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Dosah (vrcholy dvojnásobně)" Style="{StaticResource SettingLabel}" FontAttributes="Bold" />
+                        <Picker x:Name="RangePicker" Grid.Column="1" WidthRequest="120"
+                                TextColor="White" BackgroundColor="#33FFFFFF"
+                                SelectedIndexChanged="OnRangeChanged" />
+                    </Grid>
+
+                    <Label Text="Vrstvy a jejich přednost" Style="{StaticResource SettingLabel}" FontAttributes="Bold" Margin="0,8,0,0" />
                     <VerticalStackLayout x:Name="LayersPanel" Spacing="4" />
 
                     <Label Text="Směr kamery" Style="{StaticResource SettingLabel}" FontAttributes="Bold" Margin="0,8,0,0" />

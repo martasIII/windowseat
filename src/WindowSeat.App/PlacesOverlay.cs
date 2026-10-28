@@ -43,6 +43,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     private IReadOnlyList<Place> _places = places;
     private Place? _expanded;
+    private double _rangeKm = ViewRange.DefaultKm;
     private GeoPoint? _observer;
     private List<(Place Place, LineOfSight Los)> _sightings = [];
 
@@ -73,6 +74,17 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     public CameraPose? Pose { get; set; }
 
     public LayerWeights Layers { get; set; } = LayerWeights.Default;
+
+    /// <summary>Do jaké vzdálenosti ukazovat místa (km), vrcholy dvojnásobně.</summary>
+    public double RangeKm
+    {
+        get => _rangeKm;
+        set
+        {
+            _rangeKm = value;
+            _sightings = Sightings(_observer);
+        }
+    }
 
     /// <summary>Zorný úhel objektivu ze systému; z něj a rozměrů obrazovky se počítá úhel přes šířku.</summary>
     public LensFieldOfView? Lens { get; set; }
@@ -393,6 +405,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             : _places
                 .Where(p => LineOfSight.IsAboveHorizon(from, p.Location))
                 .Select(p => (p, LineOfSight.Between(from, p.Location)))
+                .Where(x => ViewRange.IsWithin(x.p, x.Item2.DistanceMeters, _rangeKm))
                 .ToList();
 
     // Šířku měříme stejným písmem a velikostí, jakými pak kreslíme.
