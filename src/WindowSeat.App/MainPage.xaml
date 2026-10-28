@@ -64,7 +64,21 @@
                     <RoundRectangle CornerRadius="12" />
                 </Border.StrokeShape>
                 <VerticalStackLayout Spacing="6">
-                    <Grid ColumnDefinitions="*,Auto">
+                    <Label Text="Směr kamery" Style="{StaticResource SettingLabel}" />
+                    <Picker x:Name="HeadingPicker"
+                            TextColor="White"
+                            BackgroundColor="#33FFFFFF"
+                            SelectedIndexChanged="OnSettingsChanged">
+                        <Picker.ItemsSource>
+                            <x:Array Type="{x:Type x:String}">
+                                <x:String>Kompas (venku pěšky)</x:String>
+                                <x:String>Kurz GPS, levé okno</x:String>
+                                <x:String>Kurz GPS, pravé okno</x:String>
+                            </x:Array>
+                        </Picker.ItemsSource>
+                    </Picker>
+
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
                         <Label Text="Ruční poloha" Style="{StaticResource SettingLabel}" />
                         <Switch x:Name="ManualPositionSwitch" Grid.Column="1" Toggled="OnSettingsChanged" />
                     </Grid>

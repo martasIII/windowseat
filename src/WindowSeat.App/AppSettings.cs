@@ -1,3 +1,5 @@
+using WindowSeat.Core.Orientation;
+
 namespace WindowSeat.App;
 
 /// <summary>Nastavení pro ladění ze země, uložené v telefonu mezi spuštěními.</summary>
@@ -31,6 +33,12 @@ public static class AppSettings
     {
         get => Preferences.Default.Get(nameof(ManualAltitudeMeters), 350.0);
         set => Preferences.Default.Set(nameof(ManualAltitudeMeters), value);
+    }
+
+    public static HeadingMode HeadingMode
+    {
+        get => (HeadingMode)Preferences.Default.Get(nameof(HeadingMode), (int)HeadingMode.Compass);
+        set => Preferences.Default.Set(nameof(HeadingMode), (int)value);
     }
 
     /// <summary>Zorný úhel mezi levým a pravým okrajem obrazovky; ladí se podle známého cíle.</summary>
