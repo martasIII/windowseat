@@ -15,6 +15,10 @@ public partial class MainPage : ContentPage
 	private const double LabelHitRadius = 90;
 
 	private readonly PlacesOverlay _overlay = new(TestPlaces.All);
+	private readonly OrientationSource _orientation = new();
+	private readonly HeadingFusion _fusion = new();
+	private double _lastGyroAzimuth;
+	private double _lastFusedAzimuth;
 
 	private CancellationTokenSource? _cts;
 	private Location? _gps;
@@ -39,11 +43,7 @@ public partial class MainPage : ContentPage
 		InitializeComponent();
 		Overlay.Drawable = _overlay;
 
-		OrientationSensor.Default.ReadingChanged += (_, e) =>
-		{
-			var magnetic = CameraPose.FromDeviceRotation(e.Reading.Orientation);
-			MainThread.BeginInvokeOnMainThread(() => ShowPose(magnetic));
-		};
+		_orientation.ReadingChanged += reading => MainThread.BeginInvokeOnMainThread(() => ShowPose(reading));
 
 		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() =>
 		{
@@ -70,10 +70,8 @@ public partial class MainPage : ContentPage
 		else
 			ShowStatus("Bez oprávnění ke kameře není náhled.");
 
-		if (OrientationSensor.Default.IsSupported)
-			OrientationSensor.Default.Start(SensorSpeed.UI);
-		else
-			PoseLabel.Text = "Orientace: senzor chybí";
+		if (!_orientation.Start())
+			PoseLabel.Text = "Orientace: telefon nemá gyroskop";
 
 		if (await Permissions.RequestAsync<Permissions.LocationWhenInUse>() == PermissionStatus.Granted)
 			await StartLocationAsync();
@@ -86,8 +84,7 @@ public partial class MainPage : ContentPage
 		_cts?.Cancel();
 		Camera.StopCameraPreview();
 
-		if (OrientationSensor.Default.IsMonitoring)
-			OrientationSensor.Default.Stop();
+		_orientation.Stop();
 		Geolocation.Default.StopListeningForeground();
 
 		base.OnDisappearing();
@@ -128,23 +125,36 @@ public partial class MainPage : ContentPage
 		}
 	}
 
-	private void ShowPose(CameraPose magnetic)
+	private void ShowPose(OrientationReading reading)
 	{
+		// Náklon a výšku pohledu bereme z gyroskopu, ty kov ani elektronika neruší.
+		var gyro = CameraPose.FromDeviceRotation(reading.Gyro);
+
+		// Kompas míří k magnetickému severu, místa máme vůči zeměpisnému.
+		double? compassAzimuth = reading.Compass is { } compass
+			? CameraPose.FromDeviceRotation(compass).AzimuthDegrees + _declination
+			: null;
+
+		_lastGyroAzimuth = gyro.AzimuthDegrees;
+		_lastFusedAzimuth = _fusion.Update(gyro.AzimuthDegrees, compassAzimuth, reading.Timestamp);
+
 		var mode = AppSettings.HeadingMode;
 		CameraPose pose;
 		string source;
 
 		if (mode != HeadingMode.Compass && _course is { } course)
 		{
-			// Ve vozidle bereme směr z kurzu; náklon a výšku pohledu dál ze senzoru, ty kov neruší.
-			pose = magnetic with { AzimuthDegrees = Heading.CameraAzimuthFromCourse(course, mode) };
+			pose = gyro with { AzimuthDegrees = Heading.CameraAzimuthFromCourse(course, mode) };
 			source = "kurz GPS";
 		}
 		else
 		{
-			// Senzor míří k magnetickému severu, místa máme vůči zeměpisnému.
-			pose = magnetic with { AzimuthDegrees = (magnetic.AzimuthDegrees + _declination + 360) % 360 };
-			source = string.Format(Invariant, "kompas {0:+0.0;-0.0}° dekl.", _declination);
+			pose = gyro with { AzimuthDegrees = _lastFusedAzimuth };
+			source = _fusion.IsLocked
+				? "gyroskop, kalibrováno"
+				: Math.Abs(_fusion.CompassDeviationDegrees) > HeadingFusion.DisturbanceThresholdDegrees
+					? string.Format(Invariant, "kompas rušen {0:+0;-0}°, drží gyroskop", _fusion.CompassDeviationDegrees)
+					: string.Format(Invariant, "gyroskop + kompas {0:+0;-0}°", _fusion.CompassDeviationDegrees);
 			if (mode != HeadingMode.Compass)
 				source += ", kurz čeká na jízdu";
 		}
@@ -279,6 +289,9 @@ public partial class MainPage : ContentPage
 		AppSettings.Correction = _correction;
 		ShowCorrection();
 
+		// Po kalibraci už kompasu nevěříme; směr drží gyroskop od současné hodnoty.
+		_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth);
+
 		_overlay.Highlighted = null;
 		SetCalibration(CalibrationStep.Off, null);
 	}
@@ -301,6 +314,7 @@ public partial class MainPage : ContentPage
 	{
 		_correction = PoseCorrection.None;
 		AppSettings.Correction = _correction;
+		_fusion.Unlock();
 		ShowCorrection();
 	}
 
