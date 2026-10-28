@@ -301,7 +301,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             canvas.StrokeSize = 1.5f;
             canvas.DrawLine((float)placed.Anchor.X, (float)placed.Anchor.Y - 12, (float)placed.Anchor.X, (float)box.Bottom + 2);
 
-            DrawOutlinedText(canvas, placed.Item.Place.Name, x, (float)box.Bottom - 5, HorizontalAlignment.Center, Colors.Black);
+            DrawOutlinedText(canvas, placed.Item.Place.Name, x, (float)box.Bottom - 5, HorizontalAlignment.Center, Colors.Black, FontSize);
             _drawn.Add(new DrawnLabel(placed.Item.Place, placed.Item.Los, placed.Anchor, new RectF(x - halfWidth, (float)box.Top, (float)placed.Width, LabelHeight)));
         }
     }
@@ -328,9 +328,9 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             : Distance(focused.Los);
 
         canvas.FontSize = FocusFontSize;
-        DrawOutlinedText(canvas, place.Name, centre.X, centre.Y + RingRadius + 28, HorizontalAlignment.Center, Color.FromArgb("#712B13"));
+        DrawOutlinedText(canvas, place.Name, centre.X, centre.Y + RingRadius + 28, HorizontalAlignment.Center, Color.FromArgb("#712B13"), FocusFontSize);
         canvas.FontSize = FontSize;
-        DrawOutlinedText(canvas, meta, centre.X, centre.Y + RingRadius + 50, HorizontalAlignment.Center, Colors.Black);
+        DrawOutlinedText(canvas, meta, centre.X, centre.Y + RingRadius + 50, HorizontalAlignment.Center, Colors.Black, FontSize);
 
         // Čára od kroužku k zaměřené ikonce, když není přímo uprostřed.
         var dx = (float)focused.Point.X - centre.X;
@@ -344,17 +344,26 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         }
     }
 
-    private static void DrawOutlinedText(ICanvas canvas, string text, float x, float baseline, HorizontalAlignment alignment, Color color)
+    private static void DrawOutlinedText(ICanvas canvas, string text, float x, float baseline, HorizontalAlignment alignment, Color color, float fontSize)
     {
-        // Popisek je vždy jeden řádek; bez nezlomitelných mezer by ho Android mohl zalomit.
-        text = text.Replace(' ', ' ');
+        // Kreslíme do pole mnohem širšího než text: Android u kreslení z jednoho bodu omezuje šířku řádku
+        // a láme i uprostřed slova. Spodek pole leží kousek pod účařím, aby tam text dosedl.
+        const float wide = 2000;
+        var left = alignment switch
+        {
+            HorizontalAlignment.Left => x,
+            HorizontalAlignment.Right => x - wide,
+            _ => x - wide / 2,
+        };
+        var top = baseline - fontSize * 1.3f;
+        var height = fontSize * 1.6f;
 
         canvas.FontColor = Colors.White;
         foreach (var (dx, dy) in Halo)
-            canvas.DrawString(text, x + dx, baseline + dy, alignment);
+            canvas.DrawString(text, left + dx, top + dy, wide, height, alignment, VerticalAlignment.Bottom);
 
         canvas.FontColor = color;
-        canvas.DrawString(text, x, baseline, alignment);
+        canvas.DrawString(text, left, top, wide, height, alignment, VerticalAlignment.Bottom);
     }
 
     /// <summary>Slunce a Měsíc nad obzorem; slouží i jako kalibrační cíl.</summary>
@@ -392,7 +401,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         var key = $"{fontSize}|{text}";
         if (!_textWidths.TryGetValue(key, out var width))
         {
-            width = canvas.GetStringSize(text, LabelFont, fontSize).Width;
+            // S rezervou: měření písma na Androidu vychází o kousek užší, než pak kreslení.
+            width = canvas.GetStringSize(text, LabelFont, fontSize).Width * 1.12f;
             _textWidths[key] = width;
         }
 
