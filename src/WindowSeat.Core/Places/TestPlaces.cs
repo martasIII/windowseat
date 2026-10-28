@@ -15,6 +15,9 @@ public static class TestPlaces
         new("Letohrádek Hvězda", new GeoPoint(50.0834, 14.3263, 405), PlaceKind.Landmark, 20),
         new("Bílá hora", new GeoPoint(50.07861, 14.31944, 381), PlaceKind.Peak, 10),
 
+        // Výška odhadnutá: terén v Liboci kolem 335 m n. m. a vršek věže zhruba o 25 m výš.
+        new("Kostel sv. Fabiána a Šebestiána", new GeoPoint(50.0870494, 14.3289025, 360), PlaceKind.Landmark, 3),
+
         // Pražské památky.
         new("Katedrála sv. Víta", new GeoPoint(50.090833, 14.400556, 320), PlaceKind.Landmark, 60),
         new("Karlův most", new GeoPoint(50.086389, 14.411944, 195), PlaceKind.Bridge, 62),
