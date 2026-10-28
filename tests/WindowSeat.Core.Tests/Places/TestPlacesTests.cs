@@ -19,6 +19,17 @@ public class TestPlacesTests
     }
 
     [Fact]
+    public void Charles_bridge_is_downstream_of_bridge_of_legions_and_both_cross_near_the_national_theatre()
+    {
+        var charles = TestPlaces.All.Single(p => p.Name == "Karlův most").Location;
+        var legions = TestPlaces.All.Single(p => p.Name == "Most Legií").Location;
+        var theatre = TestPlaces.All.Single(p => p.Name == "Národní divadlo").Location;
+
+        Assert.True(charles.LatitudeDegrees > legions.LatitudeDegrees);
+        Assert.InRange(LineOfSight.GroundDistance(legions, theatre), 150, 400);
+    }
+
+    [Fact]
     public void All_places_have_distinct_names_and_lie_in_czechia()
     {
         Assert.Equal(TestPlaces.All.Count, TestPlaces.All.Select(p => p.Name).Distinct().Count());

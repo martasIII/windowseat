@@ -287,7 +287,7 @@ public partial class MainPage : ContentPage
 	{
 		// Klepnout jde na tečku i na text nad ní; bereme bližší z obou.
 		var toDot = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - tapped.Y, 2));
-		var toText = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - 44 - tapped.Y, 2));
+		var toText = Math.Sqrt(Math.Pow(label.LabelCentre.X - tapped.X, 2) + Math.Pow(label.LabelCentre.Y - tapped.Y, 2));
 		return Math.Min(toDot, toText);
 	}
 
