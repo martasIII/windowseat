@@ -35,6 +35,8 @@ public partial class MainPage : ContentPage
 	private readonly HeadingFusion _fusion = new();
 	private readonly PoseSmoother _smoother = new(TimeSpan.FromMilliseconds(150));
 	private readonly SessionRecorder _recorder = new();
+	private static readonly TimeSpan FrameInterval = TimeSpan.FromSeconds(1.0 / 30);
+	private DateTimeOffset _lastFrame;
 	private bool _pinned;
 	private Place? _detailPlace;
 	private PoseCorrection _dragStart;
@@ -265,7 +267,14 @@ public partial class MainPage : ContentPage
 			_overlay.Focused?.Name));
 
 		_overlay.Pose = pose;
-		Overlay.Invalidate();
+
+		// Senzory chodí 50× za sekundu (vyhlazení má čerstvá data), překreslujeme nejvýš 30×: rozdíl oko nepozná,
+		// baterie ano.
+		if (reading.Timestamp - _lastFrame >= FrameInterval)
+		{
+			_lastFrame = reading.Timestamp;
+			Overlay.Invalidate();
+		}
 	}
 
 	private async Task StartLocationAsync()
