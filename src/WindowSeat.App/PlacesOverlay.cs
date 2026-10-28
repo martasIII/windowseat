@@ -21,6 +21,9 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     // Nejmenší vzdálenost dvou ikonek; bližší se schovají pod důležitější.
     private const float MinIconDistance = 26;
 
+    // Strop ikonek v záběru; v centru Prahy jsou jich jinak stovky a kreslení se zpomalí.
+    private const int MaxIcons = 60;
+
     // Vějíř: poloměr větší než okruh, kde zaměřovač pustí hlavní ikonku (1,8 × kroužek), aby šlo přejet na sousedy.
     private const double FanRadius = 85;
     private const double FanSpacing = 44;
@@ -164,7 +167,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
                 candidates.Add(new((place, los), point, score));
         }
 
-        var markers = IconDeclutter.Arrange(candidates, MinIconDistance)
+        var markers = IconDeclutter.Arrange(candidates, MinIconDistance, MaxIcons)
             .Select(s => new Marker(s.Value.Place, s.Value.Los, s.Point, s.Score, s.Members))
             .ToList();
         ExpandFan(markers);
