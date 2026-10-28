@@ -352,11 +352,11 @@ public partial class MainPage : ContentPage
 
 	private static double DistanceToLabel(DrawnLabel label, ScreenPoint tapped)
 	{
-		// Klepnout jde na tečku u cíle i na svislý popisek v pruhu; bereme bližší z obou.
+		// Klepnout jde na tečku u cíle i na text popisku; bereme bližší z obou (uvnitř textu je vzdálenost nula).
 		var toDot = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - tapped.Y, 2));
-		var alongText = Math.Max(0, Math.Abs(label.LabelCentre.Y - tapped.Y) - label.LabelLength / 2);
-		var toText = Math.Sqrt(Math.Pow(label.LabelCentre.X - tapped.X, 2) + Math.Pow(alongText, 2));
-		return Math.Min(toDot, toText);
+		var dx = Math.Max(0, Math.Max(label.Bounds.Left - tapped.X, tapped.X - label.Bounds.Right));
+		var dy = Math.Max(0, Math.Max(label.Bounds.Top - tapped.Y, tapped.Y - label.Bounds.Bottom));
+		return Math.Min(toDot, Math.Sqrt(dx * dx + dy * dy));
 	}
 
 	/// <summary>Kartička s detailem klepnutého místa; klepnutí mimo popisky ji zavře.</summary>

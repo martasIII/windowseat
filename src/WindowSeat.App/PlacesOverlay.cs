@@ -7,17 +7,26 @@ using WindowSeat.Core.Sky;
 namespace WindowSeat.App;
 
 /// <summary>
-/// Kreslí popisky míst přes náhled kamery: svisle v pruhu u horního okraje, s čarou dolů k cíli.
-/// Nic se nekříží a krajina pod pruhem zůstává volná; co se nevejde, ustoupí známějším a bližším místům.
+/// Kreslí popisky míst přes náhled kamery. Vrcholy svisle v pruhu u horního okraje s čarou dolů (tvoří panorama),
+/// ostatní vodorovně těsně nad cílem. Písmo bez podkladu, černé s bílým obrysem, aby bylo čitelné na obloze i na stínu.
 /// </summary>
 public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 {
-    private const float FontSize = 14;
-    private const float PillThickness = 22;
-    private const float ColumnWidth = 26;
+    private const float FontSize = 15;
+    private const float ColumnWidth = 24;
     private const float BandTop = 70;
     private const float BandLength = 230;
     private const float BandBottom = BandTop + BandLength;
+    private const float LabelHeight = 20;
+
+    // Bílý obrys: text se nakreslí bíle posunutý do všech stran a černě navrch.
+    private static readonly (float X, float Y)[] Halo =
+    [
+        (-1.6f, 0), (1.6f, 0), (0, -1.6f), (0, 1.6f),
+        (-1.2f, -1.2f), (1.2f, -1.2f), (-1.2f, 1.2f), (1.2f, 1.2f),
+    ];
+
+    private static readonly Microsoft.Maui.Graphics.Font LabelFont = Microsoft.Maui.Graphics.Font.DefaultBold;
 
     private readonly List<DrawnLabel> _drawn = [];
     private readonly Dictionary<string, float> _textWidths = [];
@@ -72,7 +81,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     /// <summary>Promítání a rozměry z posledního vykreslení, aby šlo klepnutí převést zpět na směr.</summary>
     public (ScreenProjector Projector, double Width, double Height)? LastFrame { get; private set; }
 
-    /// <summary>Popisky z posledního vykreslení: místo, jeho směr, bod cíle a střed popisku.</summary>
+    /// <summary>Popisky z posledního vykreslení: místo, jeho směr, bod cíle a plocha popisku.</summary>
     public IReadOnlyList<DrawnLabel> Drawn => _drawn;
 
     public void Draw(ICanvas canvas, RectF dirtyRect)
@@ -88,9 +97,12 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         var projector = new ScreenProjector(horizontalDegrees, verticalDegrees);
         LastFrame = (projector, dirtyRect.Width, dirtyRect.Height);
 
+        canvas.Font = LabelFont;
         canvas.FontSize = FontSize;
 
-        var candidates = new List<SkylineLayout.Candidate<(Place Place, LineOfSight Los, string Text)>>();
+        var peaks = new List<SkylineLayout.Candidate<Label>>();
+        var others = new List<LabelLayout.Request<Label>>();
+
         foreach (var (place, los) in _sightings.Concat(SkySightings()))
         {
             if (!Layers.IsVisible(place.Kind) && place != Highlighted)
@@ -99,19 +111,89 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
                 continue;
 
             var text = place.Kind == PlaceKind.CelestialBody ? place.Name : $"{place.Name} · {Distance(los)}";
-            var score = place == Highlighted ? double.PositiveInfinity : Layers.Score(place, los.DistanceMeters);
-            candidates.Add(new((place, los, text), point, score));
+            var label = new Label(place, los, text, TextWidth(canvas, text));
+            var score = place == Highlighted ? double.MaxValue : Layers.Score(place, los.DistanceMeters);
+
+            if (place.Kind == PlaceKind.Peak)
+                peaks.Add(new(label, point, score));
+            else
+                others.Add(new(label, point, score, label.TextWidth + 8));
         }
 
-        foreach (var slot in SkylineLayout.Arrange(candidates, dirtyRect.Width, ColumnWidth))
-        {
-            var (place, los, text) = slot.Item;
-            var length = Math.Min(BandLength, TextWidth(canvas, text) + 14);
-            var centre = new ScreenPoint(slot.LabelX, BandBottom - length / 2);
+        foreach (var slot in SkylineLayout.Arrange(peaks, dirtyRect.Width, ColumnWidth))
+            DrawVertical(canvas, slot);
 
-            _drawn.Add(new DrawnLabel(place, los, slot.Anchor, centre, length));
-            DrawLabel(canvas, place, text, slot, length, place == Highlighted);
-        }
+        foreach (var placed in LabelLayout.Arrange(others, 200, LabelHeight))
+            DrawHorizontal(canvas, placed, dirtyRect.Width);
+    }
+
+    /// <summary>Vrchol: svislý text v pruhu nahoře, čára dolů k vrcholu.</summary>
+    private void DrawVertical(ICanvas canvas, SkylineLayout.Slot<Label> slot)
+    {
+        var label = slot.Item;
+        var highlighted = label.Place == Highlighted;
+        var length = Math.Min(BandLength, label.TextWidth);
+        var x = (float)slot.LabelX;
+
+        DrawLeader(canvas, label.Place, new PointF(x, BandBottom + 4), slot.Anchor, highlighted);
+
+        // Text zdola nahoru, začíná u spodního okraje pruhu; účaří posunuté, aby osa písma ležela na sloupci.
+        canvas.SaveState();
+        canvas.Translate(x, BandBottom);
+        canvas.Rotate(-90);
+        DrawOutlinedText(canvas, label.Text, 0, FontSize * 0.35f, HorizontalAlignment.Left, highlighted);
+        canvas.RestoreState();
+
+        var bounds = new RectF(x - ColumnWidth / 2, BandBottom - length, ColumnWidth, length);
+        _drawn.Add(new DrawnLabel(label.Place, label.Los, slot.Anchor, bounds));
+    }
+
+    /// <summary>Ostatní místa: vodorovný text těsně nad cílem, při nedostatku místa o patro výš.</summary>
+    private void DrawHorizontal(ICanvas canvas, LabelLayout.Placed<Label> placed, float screenWidth)
+    {
+        var label = placed.Item;
+        var highlighted = label.Place == Highlighted;
+        var box = LabelLayout.Box(placed.Anchor, placed.Level, placed.Width, LabelHeight);
+
+        // Popisek u okraje posuneme dovnitř obrazovky; čára pořád vede k cíli.
+        var halfWidth = (float)placed.Width / 2;
+        var centreX = Math.Clamp((float)placed.Anchor.X, halfWidth + 4, screenWidth - halfWidth - 4);
+
+        DrawLeader(canvas, label.Place, new PointF((float)placed.Anchor.X, (float)box.Bottom + 2), placed.Anchor, highlighted);
+        DrawOutlinedText(canvas, label.Text, centreX, (float)box.Bottom - 5, HorizontalAlignment.Center, highlighted);
+
+        var bounds = new RectF(centreX - halfWidth, (float)box.Top, (float)placed.Width, LabelHeight);
+        _drawn.Add(new DrawnLabel(label.Place, label.Los, placed.Anchor, bounds));
+    }
+
+    private static void DrawLeader(ICanvas canvas, Place place, PointF from, ScreenPoint anchor, bool highlighted)
+    {
+        var color = highlighted ? Color.FromArgb("#D85A30") : ColorOf(place.Kind);
+        var to = new PointF((float)anchor.X, (float)anchor.Y);
+        var width = highlighted ? 2.5f : 1.5f;
+
+        // Bílý lem pod barevnou čárou, ať je vidět i na světlém pozadí.
+        canvas.StrokeColor = Colors.White;
+        canvas.StrokeSize = width + 2;
+        canvas.DrawLine(from, to);
+        canvas.FillColor = Colors.White;
+        canvas.FillCircle(to, (highlighted ? 5 : 3.5f) + 1.5f);
+
+        canvas.StrokeColor = color;
+        canvas.StrokeSize = width;
+        canvas.DrawLine(from, to);
+        canvas.FillColor = color;
+        canvas.FillCircle(to, highlighted ? 5 : 3.5f);
+    }
+
+    private static void DrawOutlinedText(ICanvas canvas, string text, float x, float baseline, HorizontalAlignment alignment, bool highlighted)
+    {
+        canvas.FontColor = Colors.White;
+        foreach (var (dx, dy) in Halo)
+            canvas.DrawString(text, x + dx, baseline + dy, alignment);
+
+        canvas.FontColor = highlighted ? Color.FromArgb("#993C1D") : Colors.Black;
+        canvas.DrawString(text, x, baseline, alignment);
     }
 
     /// <summary>Slunce a Měsíc nad obzorem; přednost před vším ostatním, slouží jako kalibrační cíl.</summary>
@@ -143,11 +225,12 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
                 .Select(p => (p, LineOfSight.Between(from, p.Location)))
                 .ToList();
 
+    // Šířku měříme stejným písmem a velikostí, jakými pak kreslíme.
     private float TextWidth(ICanvas canvas, string text)
     {
         if (!_textWidths.TryGetValue(text, out var width))
         {
-            width = canvas.GetStringSize(text, Microsoft.Maui.Graphics.Font.Default, FontSize).Width;
+            width = canvas.GetStringSize(text, LabelFont, FontSize).Width;
             _textWidths[text] = width;
         }
 
@@ -160,44 +243,16 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     public static Color ColorOf(PlaceKind kind) => kind switch
     {
-        PlaceKind.Peak => Color.FromArgb("#EF9F27"),
-        PlaceKind.Bridge => Color.FromArgb("#85B7EB"),
-        PlaceKind.CelestialBody => Color.FromArgb("#FAC775"),
-        PlaceKind.City => Colors.White,
-        PlaceKind.Building => Color.FromArgb("#B4B2A9"),
-        _ => Color.FromArgb("#5DCAA5"),
+        PlaceKind.Peak => Color.FromArgb("#BA7517"),
+        PlaceKind.Bridge => Color.FromArgb("#185FA5"),
+        PlaceKind.CelestialBody => Color.FromArgb("#EF9F27"),
+        PlaceKind.City => Color.FromArgb("#444441"),
+        PlaceKind.Building => Color.FromArgb("#5F5E5A"),
+        _ => Color.FromArgb("#0F6E56"),
     };
 
-    private static void DrawLabel(
-        ICanvas canvas,
-        Place place,
-        string text,
-        SkylineLayout.Slot<(Place, LineOfSight, string)> slot,
-        float length,
-        bool highlighted)
-    {
-        var color = highlighted ? Color.FromArgb("#F0997B") : ColorOf(place.Kind);
-        var labelX = (float)slot.LabelX;
-        var anchorX = (float)slot.Anchor.X;
-        var anchorY = (float)slot.Anchor.Y;
-
-        // Čára od spodku popisku k cíli; když popisek uhnul vedle, je šikmá.
-        canvas.StrokeColor = color;
-        canvas.StrokeSize = highlighted ? 2.5f : 1.5f;
-        canvas.DrawLine(labelX, BandBottom + 3, anchorX, anchorY);
-        canvas.FillColor = color;
-        canvas.FillCircle(anchorX, anchorY, highlighted ? 5 : 3);
-
-        // Text svisle zdola nahoru, začíná u spodního okraje pruhu.
-        canvas.SaveState();
-        canvas.Translate(labelX, BandBottom);
-        canvas.Rotate(-90);
-        canvas.FillColor = highlighted ? Color.FromArgb("#CC712B13") : Color.FromRgba(0, 0, 0, 0.55);
-        canvas.FillRoundedRectangle(0, -PillThickness / 2, length, PillThickness, PillThickness / 2);
-        canvas.FontColor = Colors.White;
-        canvas.DrawString(text, 7, -PillThickness / 2, length - 14, PillThickness, HorizontalAlignment.Left, VerticalAlignment.Center);
-        canvas.RestoreState();
-    }
+    private sealed record Label(Place Place, LineOfSight Los, string Text, float TextWidth);
 }
 
-public sealed record DrawnLabel(Place Place, LineOfSight LineOfSight, ScreenPoint Point, ScreenPoint LabelCentre, double LabelLength);
+/// <summary>Popisek z posledního snímku: místo, směr k němu, bod cíle na obrazovce a plocha textu pro klepnutí.</summary>
+public sealed record DrawnLabel(Place Place, LineOfSight LineOfSight, ScreenPoint Point, RectF Bounds);

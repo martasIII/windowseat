@@ -45,6 +45,11 @@ public static class SkylineLayout
             }
         }
 
-        return placed;
+        // Sloupce rozdáme znovu v pořadí cílů zleva doprava, aby se čáry ke slotům nekřížily.
+        var columns = placed.Select(s => s.LabelX).Order().ToList();
+        return placed
+            .OrderBy(s => s.Anchor.X)
+            .Select((slot, i) => slot with { LabelX = columns[i] })
+            .ToList();
     }
 }

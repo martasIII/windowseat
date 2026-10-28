@@ -26,6 +26,19 @@ public class SkylineLayoutTests
     }
 
     [Fact]
+    public void Leader_lines_never_cross()
+    {
+        // Tři cíle těsně u sebe; prostřední je nejznámější a dostane místo první.
+        var slots = SkylineLayout.Arrange(
+            [Candidate("vlevo", 195, 1), Candidate("střed", 200, 10), Candidate("vpravo", 205, 5)],
+            ScreenWidth,
+            Column);
+
+        var byAnchor = slots.OrderBy(s => s.Anchor.X).Select(s => s.LabelX).ToList();
+        Assert.Equal(byAnchor.Order(), byAnchor);
+    }
+
+    [Fact]
     public void Labels_never_leave_the_screen()
     {
         var slots = SkylineLayout.Arrange([Candidate("kraj", -30, 1), Candidate("druhý kraj", 450, 1)], ScreenWidth, Column);
