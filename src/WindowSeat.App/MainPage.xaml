@@ -116,9 +116,13 @@
                            Completed="OnSettingsChanged"
                            Unfocused="OnSettingsChanged" />
 
-                    <Label x:Name="FieldOfViewLabel" Style="{StaticResource SettingLabel}" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="*,Auto" Margin="0,6,0,0">
+                        <Label x:Name="FieldOfViewLabel" Style="{StaticResource SettingLabel}" />
+                        <Button Grid.Column="1" Text="Automaticky" Clicked="OnAutomaticFieldOfViewClicked"
+                                BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" />
+                    </Grid>
                     <Slider x:Name="FieldOfViewSlider"
-                            Minimum="20"
+                            Minimum="15"
                             Maximum="90"
                             ValueChanged="OnFieldOfViewChanged" />
 

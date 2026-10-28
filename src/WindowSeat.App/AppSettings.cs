@@ -55,10 +55,21 @@ public static class AppSettings
         }
     }
 
-    /// <summary>Zorný úhel mezi levým a pravým okrajem obrazovky; ladí se podle známého cíle.</summary>
-    public static double HorizontalFieldOfViewDegrees
+    /// <summary>
+    /// Ručně doladěný zorný úhel přes šířku obrazovky, nebo <c>null</c> = automaticky z objektivu.
+    /// Nový klíč: dřívější ruční hodnota platila pro náhled s černými pruhy, ne přes celou obrazovku.
+    /// </summary>
+    public static double? ManualFieldOfViewDegrees
     {
-        get => Preferences.Default.Get(nameof(HorizontalFieldOfViewDegrees), 50.0);
-        set => Preferences.Default.Set(nameof(HorizontalFieldOfViewDegrees), value);
+        get => Preferences.Default.ContainsKey(nameof(ManualFieldOfViewDegrees))
+            ? Preferences.Default.Get(nameof(ManualFieldOfViewDegrees), 0.0)
+            : null;
+        set
+        {
+            if (value is { } degrees)
+                Preferences.Default.Set(nameof(ManualFieldOfViewDegrees), degrees);
+            else
+                Preferences.Default.Remove(nameof(ManualFieldOfViewDegrees));
+        }
     }
 }

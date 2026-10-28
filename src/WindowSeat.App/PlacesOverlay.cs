@@ -47,7 +47,17 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     public CameraPose? Pose { get; set; }
 
-    public double HorizontalFieldOfViewDegrees { get; set; } = 50;
+    /// <summary>Zorný úhel objektivu ze systému; z něj a rozměrů obrazovky se počítá úhel přes šířku.</summary>
+    public LensFieldOfView? Lens { get; set; }
+
+    /// <summary>Ručně nastavený úhel přes šířku obrazovky; má přednost před objektivem.</summary>
+    public double? ManualHorizontalFieldOfViewDegrees { get; set; }
+
+    /// <summary>Úhel přes šířku obrazovky pro dané rozměry: ruční, z objektivu, nebo odhad.</summary>
+    public double HorizontalFieldOfViewDegrees(double width, double height) =>
+        ManualHorizontalFieldOfViewDegrees
+        ?? Lens?.VisibleHorizontalDegrees(width, height)
+        ?? 50;
 
     /// <summary>Místo vybrané pro kalibraci; zvýrazní se.</summary>
     public Place? Highlighted { get; set; }
@@ -65,9 +75,10 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             return;
 
         // Svislý úhel dopočítáme z poměru stran, pixely náhledu jsou čtvercové.
-        var halfHorizontal = HorizontalFieldOfViewDegrees * Math.PI / 360;
+        var horizontalDegrees = HorizontalFieldOfViewDegrees(dirtyRect.Width, dirtyRect.Height);
+        var halfHorizontal = horizontalDegrees * Math.PI / 360;
         var verticalDegrees = 2 * Math.Atan(Math.Tan(halfHorizontal) * dirtyRect.Height / dirtyRect.Width) * 180 / Math.PI;
-        var projector = new ScreenProjector(HorizontalFieldOfViewDegrees, verticalDegrees);
+        var projector = new ScreenProjector(horizontalDegrees, verticalDegrees);
         LastFrame = (projector, dirtyRect.Width, dirtyRect.Height);
 
         canvas.FontSize = FontSize;

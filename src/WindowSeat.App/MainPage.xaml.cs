@@ -140,6 +140,10 @@ public partial class MainPage : ContentPage
 			var cameras = await Camera.GetAvailableCameras(token);
 			Camera.SelectedCamera = cameras.FirstOrDefault(c => c.Position == CameraPosition.Rear) ?? cameras.FirstOrDefault();
 			await Camera.StartCameraPreview(token);
+
+			CameraLens.FillScreen(Camera.Handler);
+			_overlay.Lens = CameraLens.Rear();
+			ApplyFieldOfView();
 		}
 		catch (Exception ex) when (ex is not OperationCanceledException)
 		{
@@ -366,8 +370,8 @@ public partial class MainPage : ContentPage
 		AltitudeEntry.Text = AppSettings.ManualAltitudeMeters.ToString("0", Invariant);
 		ManualPositionSwitch.IsToggled = AppSettings.ManualPosition;
 		ManualAltitudeSwitch.IsToggled = AppSettings.ManualAltitude;
-		FieldOfViewSlider.Value = AppSettings.HorizontalFieldOfViewDegrees;
-		ApplyFieldOfView(AppSettings.HorizontalFieldOfViewDegrees);
+		_overlay.ManualHorizontalFieldOfViewDegrees = AppSettings.ManualFieldOfViewDegrees;
+		ApplyFieldOfView();
 		_correction = AppSettings.Correction;
 		ShowCorrection();
 		_loadingSettings = false;
@@ -404,14 +408,34 @@ public partial class MainPage : ContentPage
 			return;
 
 		var degrees = Math.Round(e.NewValue, 1);
-		AppSettings.HorizontalFieldOfViewDegrees = degrees;
-		ApplyFieldOfView(degrees);
+		AppSettings.ManualFieldOfViewDegrees = degrees;
+		_overlay.ManualHorizontalFieldOfViewDegrees = degrees;
+		ApplyFieldOfView();
 	}
 
-	private void ApplyFieldOfView(double degrees)
+	private void OnAutomaticFieldOfViewClicked(object? sender, EventArgs e)
 	{
-		FieldOfViewLabel.Text = string.Format(Invariant, "Zorný úhel na šířku: {0:0.0}°", degrees);
-		_overlay.HorizontalFieldOfViewDegrees = degrees;
+		AppSettings.ManualFieldOfViewDegrees = null;
+		_overlay.ManualHorizontalFieldOfViewDegrees = null;
+		ApplyFieldOfView();
+	}
+
+	/// <summary>Ukáže platný zorný úhel a srovná s ním posuvník (bez toho, aby se tím přepnul na ruční).</summary>
+	private void ApplyFieldOfView()
+	{
+		var width = Overlay.Width > 0 ? Overlay.Width : 1080;
+		var height = Overlay.Height > 0 ? Overlay.Height : 2400;
+		var degrees = _overlay.HorizontalFieldOfViewDegrees(width, height);
+		var source = _overlay.ManualHorizontalFieldOfViewDegrees is not null ? "ručně"
+			: _overlay.Lens is not null ? "z objektivu"
+			: "odhad";
+
+		var loading = _loadingSettings;
+		_loadingSettings = true;
+		FieldOfViewSlider.Value = Math.Clamp(degrees, FieldOfViewSlider.Minimum, FieldOfViewSlider.Maximum);
+		_loadingSettings = loading;
+
+		FieldOfViewLabel.Text = string.Format(Invariant, "Zorný úhel na šířku: {0:0.0}° ({1})", degrees, source);
 		Overlay.Invalidate();
 	}
 
@@ -419,6 +443,8 @@ public partial class MainPage : ContentPage
 	{
 		SettingsPanel.IsVisible = !SettingsPanel.IsVisible;
 		SettingsButton.Text = SettingsPanel.IsVisible ? "Hotovo" : "Nastavení";
+		if (SettingsPanel.IsVisible)
+			ApplyFieldOfView();
 	}
 
 	private void ShowStatus(string message)
