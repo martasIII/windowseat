@@ -9,8 +9,11 @@ public static class IconDeclutter
 {
     public sealed record Item<T>(T Value, ScreenPoint Point, double Score);
 
-    /// <param name="Hidden">Kolik méně důležitých míst se schovalo pod tuto ikonku.</param>
-    public sealed record Shown<T>(T Value, ScreenPoint Point, double Score, int Hidden);
+    /// <param name="Members">Méně důležitá místa schovaná pod touto ikonkou, od nejdůležitějšího.</param>
+    public sealed record Shown<T>(T Value, ScreenPoint Point, double Score, IReadOnlyList<Item<T>> Members)
+    {
+        public int Hidden => Members.Count;
+    }
 
     /// <param name="minDistance">Nejmenší vzdálenost středů dvou ikonek na obrazovce.</param>
     public static IReadOnlyList<Shown<T>> Arrange<T>(IEnumerable<Item<T>> items, double minDistance)
@@ -26,9 +29,9 @@ public static class IconDeclutter
                 .FirstOrDefault();
 
             if (nearest is { } index)
-                shown[index] = shown[index] with { Hidden = shown[index].Hidden + 1 };
+                shown[index] = shown[index] with { Members = [.. shown[index].Members, item] };
             else
-                shown.Add(new Shown<T>(item.Value, item.Point, item.Score, 0));
+                shown.Add(new Shown<T>(item.Value, item.Point, item.Score, []));
         }
 
         return shown;

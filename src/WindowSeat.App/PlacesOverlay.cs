@@ -21,6 +21,11 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     // Nejmenší vzdálenost dvou ikonek; bližší se schovají pod důležitější.
     private const float MinIconDistance = 26;
 
+    // Vějíř: poloměr větší než okruh, kde zaměřovač pustí hlavní ikonku (1,8 × kroužek), aby šlo přejet na sousedy.
+    private const double FanRadius = 85;
+    private const double FanSpacing = 44;
+    private const int MaxFanSize = 12;
+
     // Bílý obrys: text se nakreslí bíle posunutý do všech stran a černě navrch.
     private static readonly (float X, float Y)[] Halo =
     [
@@ -37,6 +42,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     private readonly FocusTracker<Place> _focus = new(RingRadius, RingRadius * 1.8, TimeSpan.FromMilliseconds(600));
 
     private IReadOnlyList<Place> _places = places;
+    private Place? _expanded;
     private GeoPoint? _observer;
     private List<(Place Place, LineOfSight Los)> _sightings = [];
 
@@ -74,11 +80,14 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     /// <summary>Ručně nastavený úhel přes šířku obrazovky; má přednost před objektivem.</summary>
     public double? ManualHorizontalFieldOfViewDegrees { get; set; }
 
-    /// <summary>Úhel přes šířku obrazovky pro dané rozměry: ruční, z objektivu, nebo odhad.</summary>
+    /// <summary>Přiblížení fotoaparátu; zúží zorný úhel, takže se ikonky v hustém místě rozestoupí.</summary>
+    public double Zoom { get; set; } = 1;
+
+    /// <summary>Úhel přes šířku obrazovky pro dané rozměry: ruční, z objektivu, nebo odhad; vždy po přiblížení.</summary>
     public double HorizontalFieldOfViewDegrees(double width, double height) =>
-        ManualHorizontalFieldOfViewDegrees
-        ?? Lens?.VisibleHorizontalDegrees(width, height)
-        ?? 50;
+        LensFieldOfView.Zoomed(
+            ManualHorizontalFieldOfViewDegrees ?? Lens?.VisibleHorizontalDegrees(width, height) ?? 50,
+            Zoom);
 
     /// <summary>Přišpendlené místo (klepnutím nebo kalibrací); drží zaměření místo kroužku.</summary>
     public Place? Highlighted { get; set; }
@@ -125,13 +134,16 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         }
 
         var markers = IconDeclutter.Arrange(candidates, MinIconDistance)
-            .Select(s => new Marker(s.Value.Place, s.Value.Los, s.Point, s.Score, s.Hidden))
+            .Select(s => new Marker(s.Value.Place, s.Value.Los, s.Point, s.Score, s.Members))
             .ToList();
+        ExpandFan(markers);
 
         var focused = UpdateFocus(markers, centre);
+        UpdateFan(markers, focused, centre);
 
         canvas.Font = LabelFont;
-        foreach (var marker in markers.OrderBy(m => m.Score))
+        DrawFanBackdrop(canvas, markers);
+        foreach (var marker in markers.OrderBy(m => m.InFan).ThenBy(m => m.Score))
             DrawMarker(canvas, marker, marker == focused);
 
         DrawPermanentLabels(canvas, markers, focused, centre, dirtyRect.Width);
@@ -139,6 +151,65 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         if (focused is not null)
             DrawFocusLabel(canvas, focused, centre, dirtyRect.Width);
     }
+
+    /// <summary>
+    /// Rozbalený shluk: schované ikonky se rozestoupí do kruhu kolem hlavní, každá s tenkou čarou ke skutečné poloze.
+    /// Rozbalení vydrží, dokud kroužek neodjede od shluku dál, než sahá vějíř.
+    /// </summary>
+    private void ExpandFan(List<Marker> markers)
+    {
+        if (_expanded is null)
+            return;
+
+        var index = markers.FindIndex(m => m.Place == _expanded);
+        if (index < 0)
+        {
+            _expanded = null;
+            return;
+        }
+
+        var head = markers[index];
+        var members = head.Members.Take(MaxFanSize).ToList();
+        var offsets = FanLayout.Offsets(members.Count, FanSpacing, FanRadius);
+
+        markers[index] = head with { Members = [] };
+        for (var i = 0; i < members.Count; i++)
+        {
+            var member = members[i];
+            var point = new ScreenPoint(head.Point.X + offsets[i].Dx, head.Point.Y + offsets[i].Dy);
+            markers.Add(new Marker(member.Value.Place, member.Value.Los, point, member.Score, [], TruePoint: member.Point));
+        }
+    }
+
+    private void UpdateFan(List<Marker> markers, Marker? focused, PointF centre)
+    {
+        // Zaměřený shluk se rozbalí v dalším snímku.
+        if (focused is { Hidden: > 0 } && _expanded is null)
+        {
+            _expanded = focused.Place;
+            return;
+        }
+
+        if (_expanded is null || markers.FirstOrDefault(m => m.Place == _expanded) is not { } head)
+            return;
+
+        // Sbalí se, až kroužek odjede za vějíř a nemíří na nic z něj.
+        var fanReach = markers.Where(m => m.InFan).Select(m => DistanceTo(head.Point, m.Point)).DefaultIfEmpty(FanRadius).Max();
+        var focusInFan = focused is not null && (focused.InFan || focused.Place == _expanded);
+        if (!focusInFan && DistanceTo(head.Point, new ScreenPoint(centre.X, centre.Y)) > fanReach + 50)
+            _expanded = null;
+    }
+
+    private static void DrawFanBackdrop(ICanvas canvas, List<Marker> markers)
+    {
+        // Tenké čáry od rozestoupených ikonek k jejich skutečné poloze ve shluku.
+        canvas.StrokeColor = Color.FromRgba(255, 255, 255, 0.8);
+        canvas.StrokeSize = 1;
+        foreach (var marker in markers.Where(m => m.TruePoint is not null))
+            canvas.DrawLine((float)marker.Point.X, (float)marker.Point.Y, (float)marker.TruePoint!.Value.X, (float)marker.TruePoint.Value.Y);
+    }
+
+    private static double DistanceTo(ScreenPoint a, ScreenPoint b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
 
     private Marker? UpdateFocus(List<Marker> markers, PointF centre)
     {
@@ -344,7 +415,20 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         _ => Color.FromArgb("#0F6E56"),
     };
 
-    private sealed record Marker(Place Place, LineOfSight Los, ScreenPoint Point, double Score, int Hidden);
+    /// <param name="Members">Místa schovaná pod touto ikonkou (shluk).</param>
+    /// <param name="TruePoint">U ikonky rozestoupené ve vějíři její skutečná poloha; jinak <c>null</c>.</param>
+    private sealed record Marker(
+        Place Place,
+        LineOfSight Los,
+        ScreenPoint Point,
+        double Score,
+        IReadOnlyList<IconDeclutter.Item<(Place Place, LineOfSight Los)>> Members,
+        ScreenPoint? TruePoint = null)
+    {
+        public int Hidden => Members.Count;
+
+        public bool InFan => TruePoint is not null;
+    }
 }
 
 /// <summary>Ikonka nebo popisek z posledního snímku: místo, směr k němu, bod cíle na obrazovce a plocha pro klepnutí.</summary>

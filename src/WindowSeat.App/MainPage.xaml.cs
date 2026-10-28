@@ -227,7 +227,8 @@ public partial class MainPage : ContentPage
 		PoseLabel.Text = string.Format(Invariant,
 			"Směr {0,5:0.0}° ({3})\nvýška {1,5:0.0}°  náklon {2,5:0.0}°",
 			pose.AzimuthDegrees, pose.ElevationDegrees, pose.RollDegrees, source);
-		StatusLine.Text = string.Format(Invariant, "{0:0}° · {1} · {2}", pose.AzimuthDegrees, shortSource, _statusPosition);
+		var zoom = _overlay.Zoom > 1.05 ? string.Format(Invariant, " · {0:0.0}×", _overlay.Zoom) : "";
+		StatusLine.Text = string.Format(Invariant, "{0:0}° · {1} · {2}{3}", pose.AzimuthDegrees, shortSource, _statusPosition, zoom);
 
 		_overlay.Pose = pose;
 		Overlay.Invalidate();
@@ -420,6 +421,23 @@ public partial class MainPage : ContentPage
 	}
 
 	private void OnStatusTapped(object? sender, TappedEventArgs e) => StatusDetails.IsVisible = !StatusDetails.IsVisible;
+
+	/// <summary>
+	/// Přiblížení dvěma prsty: přiblíží fotoaparát a stejně zúží zorný úhel popisků, takže se ikonky
+	/// v hustém místě rozestoupí. MAUI hlásí změnu měřítka vždy jen od minulé události.
+	/// </summary>
+	private void OnPinchUpdated(object? sender, PinchGestureUpdatedEventArgs e)
+	{
+		if (e.Status != GestureStatus.Running)
+			return;
+
+		var maximum = Math.Min(8, Camera.SelectedCamera?.MaximumZoomFactor ?? 1);
+		var zoom = Math.Clamp(_overlay.Zoom * e.Scale, 1, Math.Max(1, maximum));
+
+		Camera.ZoomFactor = (float)zoom;
+		_overlay.Zoom = zoom;
+		Overlay.Invalidate();
+	}
 
 	/// <summary>Řádky pro vrstvy: název a přednost (vypnuto, nízká, běžná, vysoká).</summary>
 	private void BuildLayerSettings()

@@ -30,6 +30,7 @@
         <GraphicsView x:Name="Overlay">
             <GraphicsView.GestureRecognizers>
                 <TapGestureRecognizer Tapped="OnOverlayTapped" />
+                <PinchGestureRecognizer PinchUpdated="OnPinchUpdated" />
             </GraphicsView.GestureRecognizers>
         </GraphicsView>
 

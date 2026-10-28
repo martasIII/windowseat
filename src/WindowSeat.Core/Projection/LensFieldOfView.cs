@@ -27,6 +27,13 @@ public readonly record struct LensFieldOfView(double LongSideDegrees, double Sho
         return 2 * Math.Atan(halfVisible) * 180 / Math.PI;
     }
 
+    /// <summary>
+    /// Zorný úhel po přiblížení: zoom zmenší tangens polovičního úhlu, ne úhel samotný
+    /// (2× zoom z 34° dá 17,3°, ne 17°).
+    /// </summary>
+    public static double Zoomed(double degrees, double zoom) =>
+        2 * Math.Atan(Math.Tan(ToRadians(degrees) / 2) / Math.Max(1, zoom)) * 180 / Math.PI;
+
     private static double Angle(double sizeMm, double focalLengthMm) => 2 * Math.Atan(sizeMm / (2 * focalLengthMm)) * 180 / Math.PI;
 
     private static double ToRadians(double degrees) => degrees * Math.PI / 180;
