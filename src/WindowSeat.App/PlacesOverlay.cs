@@ -18,6 +18,9 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     private const float RingRadius = 40;
     private const int PermanentLabels = 4;
 
+    // Nejmenší vzdálenost dvou ikonek; bližší se schovají pod důležitější.
+    private const float MinIconDistance = 26;
+
     // Bílý obrys: text se nakreslí bíle posunutý do všech stran a černě navrch.
     private static readonly (float X, float Y)[] Halo =
     [
@@ -109,14 +112,21 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         LastFrame = (projector, dirtyRect.Width, dirtyRect.Height);
 
         var centre = new PointF(dirtyRect.Width / 2, dirtyRect.Height / 2);
-        var markers = new List<Marker>();
+        var candidates = new List<IconDeclutter.Item<(Place Place, LineOfSight Los)>>();
         foreach (var (place, los) in _sightings.Concat(SkySightings()))
         {
             if (!Layers.IsVisible(place.Kind) && place != Highlighted)
                 continue;
+
+            // Přišpendlené místo musí zůstat vidět, i když je v hustém shluku.
+            var score = place == Highlighted ? double.MaxValue : Layers.Score(place, los.DistanceMeters);
             if (projector.Project(pose, los, dirtyRect.Width, dirtyRect.Height) is { } point)
-                markers.Add(new Marker(place, los, point, Layers.Score(place, los.DistanceMeters)));
+                candidates.Add(new((place, los), point, score));
         }
+
+        var markers = IconDeclutter.Arrange(candidates, MinIconDistance)
+            .Select(s => new Marker(s.Value.Place, s.Value.Los, s.Point, s.Score, s.Hidden))
+            .ToList();
 
         var focused = UpdateFocus(markers, centre);
 
@@ -160,13 +170,31 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     private void DrawMarker(ICanvas canvas, Marker marker, bool focused)
     {
-        // Známější a bližší místa mají větší ikonku; vzdálená jsou průhlednější.
-        var size = (float)Math.Clamp(10 + 2.5 * Math.Log2(1 + marker.Place.Importance), 10, 22) * (focused ? 1.4f : 1);
+        // Velikost jako perspektiva: základ podle známosti, zmenšený se vzdáleností (logaritmicky).
+        // Katedrála 6 km ~22 bodů, Okoř 15 km ~14, Milešovka 60 km ~12, kostel za rohem ~18.
+        var basis = 10 + 2.5 * Math.Log2(1 + marker.Place.Importance);
+        var distanceKm = Math.Max(0.1, marker.Los.DistanceMeters / 1000);
+        var perspective = Math.Clamp(1.15 - 0.35 * Math.Log10(distanceKm), 0.55, 1.2);
+        var size = (float)Math.Clamp(basis * perspective, 8, 26) * (focused ? 1.3f : 1);
         canvas.Alpha = focused ? 1 : (float)Math.Clamp(1.2 - marker.Los.DistanceMeters / 25_000, 0.55, 1);
 
+        var x = (float)marker.Point.X;
+        var y = (float)marker.Point.Y;
         var color = focused ? Color.FromArgb("#D85A30") : ColorOf(marker.Place.Kind);
-        MarkerIcons.Draw(canvas, marker.Place.Kind, (float)marker.Point.X, (float)marker.Point.Y, size, color);
+        MarkerIcons.Draw(canvas, marker.Place.Kind, x, y, size, color);
         canvas.Alpha = 1;
+
+        // Kolik dalších míst se pod ikonkou schovalo.
+        if (marker.Hidden > 0)
+        {
+            var bx = x + size / 2 + 4;
+            var by = y - size / 2 - 2;
+            canvas.FillColor = Colors.White;
+            canvas.FillRoundedRectangle(bx - 2, by - 8, 26, 16, 8);
+            canvas.FontSize = 11;
+            canvas.FontColor = Color.FromArgb("#444441");
+            canvas.DrawString($"+{marker.Hidden}", bx + 11, by + 4, HorizontalAlignment.Center);
+        }
 
         _drawn.Add(new DrawnLabel(marker.Place, marker.Los, marker.Point, IconBounds(marker, focused)));
     }
@@ -316,7 +344,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         _ => Color.FromArgb("#0F6E56"),
     };
 
-    private sealed record Marker(Place Place, LineOfSight Los, ScreenPoint Point, double Score);
+    private sealed record Marker(Place Place, LineOfSight Los, ScreenPoint Point, double Score, int Hidden);
 }
 
 /// <summary>Ikonka nebo popisek z posledního snímku: místo, směr k němu, bod cíle na obrazovce a plocha pro klepnutí.</summary>
