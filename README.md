@@ -1,5 +1,7 @@
 # WindowSeat
 
+[![CI](https://github.com/martasIII/windowseat/actions/workflows/ci.yml/badge.svg)](https://github.com/martasIII/windowseat/actions/workflows/ci.yml)
+
 Mobilní appka, která přes kameru ukáže, co máte před sebou: památky, mosty, vrcholy hor, města. Pro turisty na kopci, na rozhledně i ve městě, a jako bonus i z okénka letadla. Funguje **offline**.
 
 Nápad je starý. První verzi jsem kdysi napsal v Javě pro Android a fungovala špatně: směr brala z kompasu, který v kovovém trupu letadla ukazuje nesmysly. Tahle verze bere v letadle kurz z GPS trati a kompas používá jen na zemi.

@@ -18,6 +18,15 @@ public readonly record struct PoseCorrection(double AzimuthDegrees, double Eleva
     };
 
     /// <summary>
+    /// Oprava z tažení prstem: uživatel posunul popisky o kus obrazovky na skutečná místa.
+    /// Posun popisků doprava znamená, že kamera ve skutečnosti míří víc doleva, než si appka myslí.
+    /// </summary>
+    /// <param name="focalLengthPixels">Ohnisko v bodech obrazovky: polovina šířky / tan(polovina zorného úhlu).</param>
+    public PoseCorrection Dragged(double dxPixels, double dyPixels, double focalLengthPixels) => new(
+        AzimuthDegrees - Math.Atan(dxPixels / focalLengthPixels) * 180 / Math.PI,
+        ElevationDegrees + Math.Atan(dyPixels / focalLengthPixels) * 180 / Math.PI);
+
+    /// <summary>
     /// Nová oprava z klepnutí: uživatel ukázal, kde na obrazovce cíl skutečně je.
     /// Pootočíme pózu tak, aby tam ukazoval i popisek.
     /// </summary>

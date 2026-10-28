@@ -61,7 +61,8 @@ internal sealed record Candidate(
     int Importance,
     double? HeightMeters,
     double? ElevationMeters,
-    string? Description)
+    string? Description,
+    string? WikipediaUrl)
 {
     public Place ToPlace(double? groundMeters)
     {
@@ -70,7 +71,7 @@ internal sealed record Candidate(
             ? summit
             : (groundMeters ?? ElevationMeters ?? 0) + AimHeight();
 
-        return new Place(Name, Location with { AltitudeMeters = Math.Round(altitude) }, Kind, Importance, Description);
+        return new Place(Name, Location with { AltitudeMeters = Math.Round(altitude) }, Kind, Importance, Description, WikipediaUrl);
     }
 
     // Bez známé výšky stavby odhad podle druhu: věže a kostely jsou vidět hlavně nahoře.
@@ -112,7 +113,7 @@ internal static class Wikidata
         var radius = radiusKm.ToString(CultureInfo.InvariantCulture);
 
         var sparql = $$"""
-            SELECT ?item ?cs ?en ?description ?coord ?links ?kind ?rank ?height ?elevation WHERE {
+            SELECT ?item ?cs ?en ?description ?csWiki ?enWiki ?coord ?links ?kind ?rank ?height ?elevation WHERE {
               SERVICE wikibase:around {
                 ?item wdt:P625 ?coord .
                 bd:serviceParam wikibase:center "{{point}}"^^geo:wktLiteral ; wikibase:radius "{{radius}}" .
@@ -129,6 +130,8 @@ internal static class Wikidata
               OPTIONAL { ?item rdfs:label ?cs FILTER(lang(?cs) = "cs") }
               OPTIONAL { ?item rdfs:label ?en FILTER(lang(?en) = "en") }
               OPTIONAL { ?item schema:description ?description FILTER(lang(?description) = "cs") }
+              OPTIONAL { ?csWiki schema:about ?item ; schema:isPartOf <https://cs.wikipedia.org/> . }
+              OPTIONAL { ?enWiki schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> . }
               OPTIONAL { ?item wdt:P2048 ?height }
               OPTIONAL { ?item wdt:P2044 ?elevation }
             }
@@ -155,7 +158,8 @@ internal static class Wikidata
                     int.Parse(Value(first, "links")!, CultureInfo.InvariantCulture),
                     rows.Select(r => Number(r, "height")).Max(),
                     rows.Select(r => Number(r, "elevation")).Max(),
-                    Value(first, "description"));
+                    Value(first, "description"),
+                    Value(first, "csWiki") ?? Value(first, "enWiki"));
             })
             .Where(c => c.Kind != PlaceKind.Building || c.Importance >= MinBuildingLinks)
             .ToList();

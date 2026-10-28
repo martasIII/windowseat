@@ -147,6 +147,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             DrawMarker(canvas, marker, marker == focused);
 
         DrawPermanentLabels(canvas, markers, focused, centre, dirtyRect.Width);
+        DrawEdgeHints(canvas, pose, horizontalDegrees, dirtyRect);
         DrawRing(canvas, centre, focused);
         if (focused is not null)
             DrawFocusLabel(canvas, focused, centre, dirtyRect.Width);
@@ -303,6 +304,30 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
             DrawOutlinedText(canvas, placed.Item.Place.Name, x, (float)box.Bottom - 5, HorizontalAlignment.Center, Colors.Black, FontSize);
             _drawn.Add(new DrawnLabel(placed.Item.Place, placed.Item.Los, placed.Anchor, new RectF(x - halfWidth, (float)box.Top, (float)placed.Width, LabelHeight)));
+        }
+    }
+
+    /// <summary>Šipky u okrajů k důležitým místům mimo záběr: kam se otočit, aby je člověk uviděl.</summary>
+    private void DrawEdgeHints(ICanvas canvas, CameraPose pose, double horizontalDegrees, RectF screen)
+    {
+        var candidates = _sightings
+            .Where(s => Layers.IsVisible(s.Place.Kind))
+            .Select(s => new EdgeHints.Candidate<(Place Place, LineOfSight Los)>(s, s.Los.AzimuthDegrees, Layers.Score(s.Place, s.Los.DistanceMeters)));
+
+        var (left, right) = EdgeHints.Select(candidates, pose.AzimuthDegrees, horizontalDegrees);
+
+        canvas.FontSize = FontSize;
+        var top = screen.Height * 0.38f;
+        for (var i = 0; i < left.Count; i++)
+        {
+            var (place, los) = left[i].Item;
+            DrawOutlinedText(canvas, $"‹ {place.Name} · {Distance(los)}", 10, top + i * 26, HorizontalAlignment.Left, Colors.Black, FontSize);
+        }
+
+        for (var i = 0; i < right.Count; i++)
+        {
+            var (place, los) = right[i].Item;
+            DrawOutlinedText(canvas, $"{place.Name} · {Distance(los)} ›", screen.Width - 10, top + i * 26, HorizontalAlignment.Right, Colors.Black, FontSize);
         }
     }
 

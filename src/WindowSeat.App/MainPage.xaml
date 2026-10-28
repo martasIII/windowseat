@@ -31,13 +31,14 @@
             <GraphicsView.GestureRecognizers>
                 <TapGestureRecognizer Tapped="OnOverlayTapped" />
                 <PinchGestureRecognizer PinchUpdated="OnPinchUpdated" />
+                <PanGestureRecognizer PanUpdated="OnPanUpdated" />
             </GraphicsView.GestureRecognizers>
         </GraphicsView>
 
         <!-- Stav v jednom řádku; klepnutím se rozbalí živé hodnoty senzorů. -->
         <Border VerticalOptions="Start"
                 HorizontalOptions="Start"
-                Margin="12,10,12,0"
+                Margin="12,36,12,0"
                 Padding="12,5"
                 StrokeThickness="0"
                 BackgroundColor="#99000000">
@@ -88,6 +89,12 @@
                         <Label x:Name="DetailName" TextColor="White" FontSize="18" FontAttributes="Bold" />
                         <Label x:Name="DetailMeta" TextColor="#B4B2A9" FontSize="13" />
                         <Label x:Name="DetailDescription" TextColor="White" FontSize="14" Margin="0,4,0,0" />
+                        <HorizontalStackLayout Spacing="8" Margin="0,8,0,0">
+                            <Button x:Name="WikipediaButton" Text="Wikipedie" Clicked="OnWikipediaClicked"
+                                    BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" Padding="12,4" />
+                            <Button x:Name="NavigateButton" Text="Navigovat" Clicked="OnNavigateClicked"
+                                    BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" Padding="12,4" />
+                        </HorizontalStackLayout>
                     </VerticalStackLayout>
                     <Button Grid.Column="1" Text="✕" VerticalOptions="Start" Clicked="OnDetailClosed"
                             BackgroundColor="Transparent" TextColor="White" Padding="8,0" />

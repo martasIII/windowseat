@@ -35,6 +35,8 @@ public partial class MainPage : ContentPage
 	private readonly HeadingFusion _fusion = new();
 	private readonly PoseSmoother _smoother = new(TimeSpan.FromMilliseconds(150));
 	private bool _pinned;
+	private Place? _detailPlace;
+	private PoseCorrection _dragStart;
 	private double _lastGyroAzimuth;
 	private double _lastFusedAzimuth;
 
@@ -405,9 +407,38 @@ public partial class MainPage : ContentPage
 		DetailMeta.Text = string.Format(Invariant, "{0} · {1} · směr {2:0}°", KindNames[place.Kind], distance, label.LineOfSight.AzimuthDegrees);
 		DetailDescription.Text = place.Description;
 		DetailDescription.IsVisible = !string.IsNullOrEmpty(place.Description);
+
+		_detailPlace = place;
+		WikipediaButton.IsVisible = place.WikipediaUrl is not null;
+		NavigateButton.IsVisible = place.Kind != PlaceKind.CelestialBody;
 	}
 
 	private void OnDetailClosed(object? sender, EventArgs e) => ShowDetail(null, pin: false);
+
+	private async void OnWikipediaClicked(object? sender, EventArgs e)
+	{
+		if (_detailPlace?.WikipediaUrl is { } url)
+			await Launcher.Default.OpenAsync(new Uri(url));
+	}
+
+	/// <summary>Otevře mapy s navigací k místu (na Androidu výběr aplikace, např. Mapy.com nebo Google Maps).</summary>
+	private async void OnNavigateClicked(object? sender, EventArgs e)
+	{
+		if (_detailPlace is not { } place)
+			return;
+
+		try
+		{
+			await Map.Default.OpenAsync(
+				place.Location.LatitudeDegrees,
+				place.Location.LongitudeDegrees,
+				new MapLaunchOptions { Name = place.Name, NavigationMode = NavigationMode.Walking });
+		}
+		catch (Exception ex)
+		{
+			ShowStatus($"Mapy: {ex.Message}");
+		}
+	}
 
 	private static void Vibrate()
 	{
@@ -421,6 +452,44 @@ public partial class MainPage : ContentPage
 	}
 
 	private void OnStatusTapped(object? sender, TappedEventArgs e) => StatusDetails.IsVisible = !StatusDetails.IsVisible;
+
+	/// <summary>
+	/// Kalibrace tažením: popisky posuneš prstem na skutečná místa. Posun se převede na stupně podle
+	/// zorného úhlu a po puštění se uloží; směr pak drží gyroskop, kompas už ho nepřetahuje zpátky.
+	/// </summary>
+	private void OnPanUpdated(object? sender, PanUpdatedEventArgs e)
+	{
+		switch (e.StatusType)
+		{
+			case GestureStatus.Started:
+				_dragStart = _correction;
+				break;
+
+			case GestureStatus.Running:
+				var width = Overlay.Width;
+				var halfFieldOfView = _overlay.HorizontalFieldOfViewDegrees(width, Overlay.Height) * Math.PI / 360;
+				var focalLength = width / 2 / Math.Tan(halfFieldOfView);
+
+				_correction = _dragStart.Dragged(e.TotalX, e.TotalY, focalLength);
+				HintLabel.Text = string.Format(Invariant, "Posouvám popisky: směr {0:+0.0;-0.0}°, výška {1:+0.0;-0.0}°",
+					_correction.AzimuthDegrees, _correction.ElevationDegrees);
+				HintPanel.IsVisible = true;
+				break;
+
+			case GestureStatus.Completed:
+				AppSettings.Correction = _correction;
+				_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth);
+				ShowCorrection();
+				HintPanel.IsVisible = _calibration != CalibrationStep.Off;
+				Vibrate();
+				break;
+
+			case GestureStatus.Canceled:
+				_correction = _dragStart;
+				HintPanel.IsVisible = _calibration != CalibrationStep.Off;
+				break;
+		}
+	}
 
 	/// <summary>
 	/// Přiblížení dvěma prsty: přiblíží fotoaparát a stejně zúží zorný úhel popisků, takže se ikonky

@@ -15,7 +15,7 @@ public sealed record PlaceCatalog(string Region, DateTimeOffset Generated, strin
             ?? throw new InvalidDataException("Prázdný katalog míst.");
 
         var places = file.Places
-            .Select(p => new Place(p.Name, new GeoPoint(p.Lat, p.Lon, p.Alt), p.Kind, p.Importance, p.Description))
+            .Select(p => new Place(p.Name, new GeoPoint(p.Lat, p.Lon, p.Alt), p.Kind, p.Importance, p.Description, p.Wiki))
             .ToList();
 
         return new PlaceCatalog(file.Region, file.Generated, file.Attribution, places);
@@ -34,7 +34,8 @@ public sealed record PlaceCatalog(string Region, DateTimeOffset Generated, strin
                 Math.Round(p.Location.AltitudeMeters),
                 p.Kind,
                 p.Importance,
-                p.Description)).ToList());
+                p.Description,
+                p.WikipediaUrl)).ToList());
 
         await JsonSerializer.SerializeAsync(json, file, PlaceCatalogJson.Default.CatalogFile, token);
     }
@@ -50,7 +51,7 @@ public sealed record PlaceCatalog(string Region, DateTimeOffset Generated, strin
 
     internal sealed record CatalogFile(string Region, DateTimeOffset Generated, string Attribution, List<PlaceEntry> Places);
 
-    internal sealed record PlaceEntry(string Name, double Lat, double Lon, double Alt, PlaceKind Kind, int Importance, string? Description);
+    internal sealed record PlaceEntry(string Name, double Lat, double Lon, double Alt, PlaceKind Kind, int Importance, string? Description, string? Wiki);
 }
 
 [JsonSourceGenerationOptions(

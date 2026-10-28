@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Testy knihovny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Testy
+        run: dotnet test tests/WindowSeat.Core.Tests --logger "console;verbosity=normal"
+      - name: Nástroj na data
+        run: dotnet build tools/WindowSeat.DataBuilder
+
+  android:
+    name: Build pro Android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: 17
+      - name: Workload MAUI Android
+        run: dotnet workload install maui-android
+      - name: Build
+        run: dotnet build src/WindowSeat.App -f net10.0-android -c Release
