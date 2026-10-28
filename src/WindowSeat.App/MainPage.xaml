@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             x:Class="WindowSeat.App.MainPage"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="Black">
+
+    <Grid>
+        <toolkit:CameraView x:Name="Camera" />
+
+        <!-- Krok 1: jen živé hodnoty senzorů přes náhled, ať ověříme, že dávají smysl. -->
+        <Border VerticalOptions="Start"
+                Margin="12,40,12,0"
+                Padding="12,8"
+                StrokeThickness="0"
+                BackgroundColor="#99000000">
+            <Border.StrokeShape>
+                <RoundRectangle CornerRadius="10" />
+            </Border.StrokeShape>
+            <VerticalStackLayout Spacing="2">
+                <Label x:Name="PoseLabel" TextColor="White" FontFamily="monospace" FontSize="15" Text="Orientace: čekám…" />
+                <Label x:Name="CompassLabel" TextColor="White" FontFamily="monospace" FontSize="15" Text="Kompas: čekám…" />
+                <Label x:Name="LocationLabel" TextColor="White" FontFamily="monospace" FontSize="15" Text="GPS: čekám…" />
+                <Label x:Name="StatusLabel" TextColor="#FFB4B2A9" FontSize="13" IsVisible="False" />
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- Záměrný kříž uprostřed: tam míří osa kamery, ke které se vztahují čísla nahoře. -->
+        <Grid HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="40" HeightRequest="40" InputTransparent="True">
+            <BoxView Color="White" HeightRequest="2" />
+            <BoxView Color="White" WidthRequest="2" />
+        </Grid>
+    </Grid>
+
+</ContentPage>
