@@ -47,6 +47,48 @@ public sealed record ScreenProjector(double HorizontalFieldOfViewDegrees, double
         return new SkyDirection(azimuth, elevation);
     }
 
+    /// <summary>
+    /// Promítne mnohoúhelník (třeba plochu řeky) na obrazovku. Body můžou ležet i mimo obrazovku; část za kamerou
+    /// se ořízne těsně před ní, jinak by se promítla převráceně. Prázdný výsledek = celé je za zády.
+    /// </summary>
+    public IReadOnlyList<ScreenPoint> ProjectPolygon(CameraPose camera, IReadOnlyList<LineOfSight> ring, double screenWidth, double screenHeight)
+    {
+        var (right, up, forward) = CameraAxes(camera);
+
+        // Souřadnice kamery v metrech: doprava, nahoru, dopředu. Ořez se dělá na skutečných polohách, ne na směrech.
+        var points = ring
+            .Select(los =>
+            {
+                var d = Direction(los.AzimuthDegrees, los.ElevationDegrees) * los.DistanceMeters;
+                return new Vector(Dot(d, right), Dot(d, up), Dot(d, forward));
+            })
+            .ToList();
+
+        const double near = 1;
+        var clipped = new List<Vector>();
+        for (var i = 0; i < points.Count; i++)
+        {
+            var current = points[i];
+            var next = points[(i + 1) % points.Count];
+            var currentInside = current.Z >= near;
+            var nextInside = next.Z >= near;
+
+            if (currentInside)
+                clipped.Add(current);
+            if (currentInside != nextInside)
+            {
+                var t = (near - current.Z) / (next.Z - current.Z);
+                clipped.Add(current + (next + current * -1) * t);
+            }
+        }
+
+        var scaleX = screenWidth / 2 / Math.Tan(ToRadians(HorizontalFieldOfViewDegrees) / 2);
+        var scaleY = screenHeight / 2 / Math.Tan(ToRadians(VerticalFieldOfViewDegrees) / 2);
+        return clipped
+            .Select(p => new ScreenPoint(screenWidth / 2 + p.X / p.Z * scaleX, screenHeight / 2 - p.Y / p.Z * scaleY))
+            .ToList();
+    }
+
     private static (Vector Right, Vector Up, Vector Forward) CameraAxes(CameraPose camera)
     {
         var forward = Direction(camera.AzimuthDegrees, camera.ElevationDegrees);

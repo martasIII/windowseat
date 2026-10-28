@@ -44,6 +44,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     private IReadOnlyList<Place> _places = places;
     private Place? _expanded;
     private double _rangeKm = ViewRange.DefaultKm;
+    private IReadOnlyList<WaterArea> _water = [];
+    private List<List<LineOfSight[]>> _waterSightings = [];
     private GeoPoint? _observer;
     private List<(Place Place, LineOfSight Los)> _sightings = [];
 
@@ -68,8 +70,22 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
             _observer = value;
             _sightings = Sightings(value);
+            _waterSightings = WaterSightings(value);
         }
     }
+
+    /// <summary>Vodní plochy, kreslené poloprůhledně pod ikonkami; dobře na nich je vidět nepřesnost směru.</summary>
+    public IReadOnlyList<WaterArea> Water
+    {
+        get => _water;
+        set
+        {
+            _water = value;
+            _waterSightings = WaterSightings(_observer);
+        }
+    }
+
+    public bool ShowWater { get; set; } = true;
 
     public CameraPose? Pose { get; set; }
 
@@ -157,6 +173,9 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         Focused = focused?.Place;
         UpdateFan(markers, focused, centre);
 
+        if (ShowWater)
+            DrawWater(canvas, pose, projector, dirtyRect);
+
         canvas.Font = LabelFont;
         DrawFanBackdrop(canvas, markers);
         foreach (var marker in markers.OrderBy(m => m.InFan).ThenBy(m => m.Score))
@@ -215,6 +234,43 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         if (!focusInFan && DistanceTo(head.Point, new ScreenPoint(centre.X, centre.Y)) > fanReach + 50)
             _expanded = null;
     }
+
+    /// <summary>Plochy řek: jeden obrys se všemi kruhy, pravidlo sudé–liché nechá ostrovy prázdné.</summary>
+    private void DrawWater(ICanvas canvas, CameraPose pose, ScreenProjector projector, RectF screen)
+    {
+        canvas.FillColor = Color.FromRgba(55, 138, 221, 90);
+        canvas.StrokeColor = Color.FromRgba(255, 255, 255, 140);
+        canvas.StrokeSize = 1;
+
+        foreach (var area in _waterSightings)
+        {
+            var path = new PathF();
+            foreach (var ring in area)
+            {
+                var points = projector.ProjectPolygon(pose, ring, screen.Width, screen.Height);
+                if (points.Count < 3)
+                    continue;
+
+                path.MoveTo((float)points[0].X, (float)points[0].Y);
+                foreach (var point in points.Skip(1))
+                    path.LineTo((float)point.X, (float)point.Y);
+                path.Close();
+            }
+
+            if (path.Count == 0)
+                continue;
+
+            canvas.FillPath(path, WindingMode.EvenOdd);
+            canvas.DrawPath(path);
+        }
+    }
+
+    private List<List<LineOfSight[]>> WaterSightings(GeoPoint? observer) =>
+        observer is not { } from
+            ? []
+            : _water
+                .Select(area => area.Rings.Select(ring => ring.Select(p => LineOfSight.Between(from, p)).ToArray()).ToList())
+                .ToList();
 
     private static void DrawFanBackdrop(ICanvas canvas, List<Marker> markers)
     {

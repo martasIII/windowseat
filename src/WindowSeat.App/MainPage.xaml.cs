@@ -156,6 +156,9 @@ public partial class MainPage : ContentPage
 			}
 
 			_overlay.Places = PlaceCatalog.Merge(places, TestPlaces.All);
+
+			await using (var water = await FileSystem.OpenAppPackageFileAsync("places/vltava.json"))
+				_overlay.Water = (await WaterCatalog.ReadAsync(water)).Areas;
 			DataLabel.Text = $"{string.Join(" + ", regions)}: {_overlay.Places.Count} míst. {DataLabel.Text}";
 			_placesLoaded = true;
 		}
@@ -592,6 +595,16 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	private void OnWaterToggled(object? sender, ToggledEventArgs e)
+	{
+		if (_loadingSettings)
+			return;
+
+		AppSettings.ShowWater = e.Value;
+		_overlay.ShowWater = e.Value;
+		Overlay.Invalidate();
+	}
+
 	private void OnRangeChanged(object? sender, EventArgs e)
 	{
 		if (_loadingSettings || RangePicker.SelectedIndex < 0)
@@ -656,6 +669,8 @@ public partial class MainPage : ContentPage
 		_correction = AppSettings.Correction;
 		ShowCorrection();
 		BuildLayerSettings();
+		WaterSwitch.IsToggled = AppSettings.ShowWater;
+		_overlay.ShowWater = AppSettings.ShowWater;
 		RangePicker.ItemsSource = ViewRange.PresetsKm.Select(km => $"{km:0} km").ToList();
 		RangePicker.SelectedIndex = NearestRange(AppSettings.RangeKm);
 		_overlay.RangeKm = AppSettings.RangeKm;

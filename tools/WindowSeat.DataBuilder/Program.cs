@@ -13,6 +13,16 @@ using WindowSeat.Core.Places;
 //   vrstvy: čárkami oddělené druhy (Peak,Tower,Castle…); bez nich všechny. Pro „okolí“ s velkým poloměrem
 //   se hodí jen to, co je vidět zdaleka.
 
+if (args is ["water", var waterOutput, ..])
+{
+    // Vodní plochy z OpenStreetMap: water <výstup.json> [jih západ sever východ], výchozí Praha.
+    var box = args.Length >= 6 ? args[2..6].Select(Parse).ToArray() : [49.96, 14.30, 50.16, 14.48];
+    using var waterHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+    waterHttp.DefaultRequestHeaders.UserAgent.ParseAdd("WindowSeat-DataBuilder/0.1 (https://martinhajek.dev)");
+    await Water.BuildAsync(waterHttp, waterOutput, box);
+    return 0;
+}
+
 if (args.Length < 5)
 {
     Console.Error.WriteLine("Použití: <region> <šířka> <délka> <poloměr km> <výstup.json> [min. článků = 3] [vrstvy = všechny]");
@@ -286,4 +296,141 @@ internal static class Terrain
     private sealed record TerrainResponse(List<TerrainResult> Results);
 
     private sealed record TerrainResult(double? Elevation);
+}
+
+/// <summary>
+/// Plochy řek z OpenStreetMap (natural=water + water=river a starší waterway=riverbank). Mnohoúhelníky
+/// přicházejí po kouscích cest, které je potřeba sešít do kruhů; pak se zjednoduší a doplní výška hladiny.
+/// </summary>
+internal static class Water
+{
+    private const double SimplifyMeters = 5;
+
+    public static async Task BuildAsync(HttpClient http, string output, double[] box)
+    {
+        var bbox = FormattableString.Invariant($"{box[0]},{box[1]},{box[2]},{box[3]}");
+        var query = $"""
+            [out:json][timeout:120];
+            ( relation["natural"="water"]["water"="river"]({bbox});
+              way["natural"="water"]["water"="river"]({bbox});
+              way["waterway"="riverbank"]({bbox}); );
+            out geom;
+            """;
+
+        Console.WriteLine("OpenStreetMap: plochy řek…");
+        using var json = await OverpassAsync(http, query);
+
+        var areas = new List<(string? Name, List<List<GeoPoint>> Rings)>();
+        foreach (var element in json.RootElement.GetProperty("elements").EnumerateArray())
+        {
+            var name = element.TryGetProperty("tags", out var tags) && tags.TryGetProperty("name", out var n) ? n.GetString() : null;
+            var pieces = element.GetProperty("type").GetString() == "way"
+                ? [Geometry(element)]
+                : element.GetProperty("members").EnumerateArray()
+                    .Where(m => m.GetProperty("type").GetString() == "way" && m.TryGetProperty("geometry", out _))
+                    .Select(Geometry)
+                    .ToList();
+
+            var rings = Stitch(pieces)
+                .Select(r => Polyline.Simplify(r, SimplifyMeters).ToList())
+                .Where(r => r.Count >= 3)
+                .ToList();
+            if (rings.Count > 0)
+                areas.Add((name, rings));
+        }
+
+        var points = areas.SelectMany(a => a.Rings).Sum(r => r.Count);
+        Console.WriteLine($"  {areas.Count} ploch, {points} bodů po zjednodušení na {SimplifyMeters} m");
+
+        // Výška hladiny z terénu; u břehu a pod mosty je model zašuměný, a tak ji v kruhu vyhladíme mediánem.
+        var all = areas.SelectMany(a => a.Rings).SelectMany(r => r).ToList();
+        var heights = await Terrain.ElevationsAsync(http, all);
+        var index = 0;
+        var catalog = new WaterCatalog(
+            "Vodní plochy: © přispěvatelé OpenStreetMap (ODbL). Výška hladiny: EU-DEM v1.1 (Copernicus).",
+            areas.Select(a => new WaterArea(a.Name, a.Rings.Select(r =>
+            {
+                var raw = r.Select(_ => heights[index++] ?? 190).ToList();
+                return (IReadOnlyList<GeoPoint>)r.Select((p, i) => p with { AltitudeMeters = Median(raw, i, 7) }).ToList();
+            }).ToList())).ToList());
+
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output))!);
+        await using (var file = File.Create(output))
+            await catalog.WriteAsync(file);
+
+        Console.WriteLine($"Uloženo do {output} ({new FileInfo(output).Length / 1024} kB)");
+    }
+
+    // Veřejné servery Overpass bývají přetížené; zkusíme hlavní a pak zrcadla, každý dvakrát.
+    private static readonly string[] Servers =
+    [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+    ];
+
+    private static async Task<JsonDocument> OverpassAsync(HttpClient http, string query)
+    {
+        foreach (var attempt in Enumerable.Range(0, 2))
+        {
+            foreach (var server in Servers)
+            {
+                using var response = await http.PostAsync(server, new FormUrlEncodedContent([new("data", query)]));
+                if (response.IsSuccessStatusCode)
+                    return await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+
+                Console.WriteLine($"  {new Uri(server).Host}: {(int)response.StatusCode}, zkouším další");
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(10));
+        }
+
+        throw new HttpRequestException("Žádný server Overpass neodpověděl.");
+    }
+
+    private static List<GeoPoint> Geometry(JsonElement way) => way.GetProperty("geometry").EnumerateArray()
+        .Select(g => new GeoPoint(g.GetProperty("lat").GetDouble(), g.GetProperty("lon").GetDouble()))
+        .ToList();
+
+    /// <summary>Sešije kousky cest do uzavřených kruhů podle shodných koncových bodů (i obráceně orientovaných).</summary>
+    private static List<List<GeoPoint>> Stitch(List<List<GeoPoint>> pieces)
+    {
+        var open = pieces.Where(p => p.Count > 1).Select(p => p.ToList()).ToList();
+        var rings = new List<List<GeoPoint>>();
+
+        while (open.Count > 0)
+        {
+            var ring = open[0];
+            open.RemoveAt(0);
+
+            while (!Same(ring[0], ring[^1]))
+            {
+                var nextIndex = open.FindIndex(p => Same(p[0], ring[^1]) || Same(p[^1], ring[^1]));
+                if (nextIndex < 0)
+                    break;
+
+                var next = open[nextIndex];
+                open.RemoveAt(nextIndex);
+                if (!Same(next[0], ring[^1]))
+                    next.Reverse();
+                ring.AddRange(next.Skip(1));
+            }
+
+            if (Same(ring[0], ring[^1]))
+                ring.RemoveAt(ring.Count - 1);
+            rings.Add(ring);
+        }
+
+        return rings;
+    }
+
+    private static bool Same(GeoPoint a, GeoPoint b) =>
+        Math.Abs(a.LatitudeDegrees - b.LatitudeDegrees) < 1e-7 && Math.Abs(a.LongitudeDegrees - b.LongitudeDegrees) < 1e-7;
+
+    private static double Median(List<double> values, int at, int window)
+    {
+        var half = window / 2;
+        var around = Enumerable.Range(at - half, window).Select(i => values[((i % values.Count) + values.Count) % values.Count]).Order().ToList();
+        return around[around.Count / 2];
+    }
 }

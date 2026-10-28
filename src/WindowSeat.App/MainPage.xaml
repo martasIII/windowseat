@@ -118,6 +118,11 @@
                                 SelectedIndexChanged="OnRangeChanged" />
                     </Grid>
 
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Plocha Vltavy (test přesnosti)" Style="{StaticResource SettingLabel}" />
+                        <Switch x:Name="WaterSwitch" Grid.Column="1" Toggled="OnWaterToggled" />
+                    </Grid>
+
                     <Label Text="Vrstvy a jejich přednost" Style="{StaticResource SettingLabel}" FontAttributes="Bold" Margin="0,8,0,0" />
                     <VerticalStackLayout x:Name="LayersPanel" Spacing="4" />
 

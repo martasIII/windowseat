@@ -79,6 +79,12 @@ public static class AppSettings
 #endif
     }
 
+    public static bool ShowWater
+    {
+        get => Preferences.Default.Get(nameof(ShowWater), true);
+        set => Preferences.Default.Set(nameof(ShowWater), value);
+    }
+
     /// <summary>Do jaké vzdálenosti ukazovat místa (km); vrcholy dvojnásobně.</summary>
     public static double RangeKm
     {
