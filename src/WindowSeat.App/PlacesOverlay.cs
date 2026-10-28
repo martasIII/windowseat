@@ -104,6 +104,9 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
     /// <summary>Přišpendlené místo (klepnutím nebo kalibrací); drží zaměření místo kroužku.</summary>
     public Place? Highlighted { get; set; }
 
+    /// <summary>Co je právě v kroužku (nebo přišpendlené), pro záznam relace.</summary>
+    public Place? Focused { get; private set; }
+
     /// <summary>Cíl se chytil do kroužku (appka cvakne vibrací).</summary>
     public event Action<Place>? FocusAcquired;
 
@@ -151,6 +154,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         ExpandFan(markers);
 
         var focused = UpdateFocus(markers, centre);
+        Focused = focused?.Place;
         UpdateFan(markers, focused, centre);
 
         canvas.Font = LabelFont;

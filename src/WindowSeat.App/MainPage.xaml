@@ -172,6 +172,9 @@
                                 BackgroundColor="Transparent" TextColor="White" BorderColor="White" BorderWidth="1" />
                     </Grid>
 
+                    <Button x:Name="RecordButton" Text="Spustit záznam relace" Clicked="OnRecordClicked" Margin="0,8,0,0"
+                            BackgroundColor="Transparent" TextColor="White" BorderColor="#F09595" BorderWidth="1" />
+
                     <Label x:Name="DataLabel" TextColor="#B4B2A9" FontSize="12" Margin="0,6,0,0" />
                 </VerticalStackLayout>
                 </ScrollView>

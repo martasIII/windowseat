@@ -34,6 +34,7 @@ public partial class MainPage : ContentPage
 	private readonly OrientationSource _orientation = new();
 	private readonly HeadingFusion _fusion = new();
 	private readonly PoseSmoother _smoother = new(TimeSpan.FromMilliseconds(150));
+	private readonly SessionRecorder _recorder = new();
 	private bool _pinned;
 	private Place? _detailPlace;
 	private PoseCorrection _dragStart;
@@ -128,6 +129,8 @@ public partial class MainPage : ContentPage
 
 		_orientation.Stop();
 		Geolocation.Default.StopListeningForeground();
+		_recorder.Stop();
+		RecordButton.Text = "Spustit záznam relace";
 
 		base.OnDisappearing();
 	}
@@ -242,7 +245,21 @@ public partial class MainPage : ContentPage
 			"Směr {0,5:0.0}° ({3})\nvýška {1,5:0.0}°  náklon {2,5:0.0}°",
 			pose.AzimuthDegrees, pose.ElevationDegrees, pose.RollDegrees, source);
 		var zoom = _overlay.Zoom > 1.05 ? string.Format(Invariant, " · {0:0.0}×", _overlay.Zoom) : "";
-		StatusLine.Text = string.Format(Invariant, "{0:0}° · {1} · {2}{3}", pose.AzimuthDegrees, shortSource, _statusPosition, zoom);
+		var recording = _recorder.IsRecording ? "● " : "";
+		StatusLine.Text = string.Format(Invariant, "{4}{0:0}° · {1} · {2}{3}", pose.AzimuthDegrees, shortSource, _statusPosition, zoom, recording);
+
+		_recorder.Record(new SessionSample(
+			reading.Timestamp,
+			_overlay.Observer,
+			AppSettings.ManualPosition ? null : _gps?.Accuracy,
+			AppSettings.ManualPosition,
+			pose,
+			_fusion.CompassDeviationDegrees,
+			_fusion.IsLocked,
+			_correction,
+			_overlay.Zoom,
+			_overlay.HorizontalFieldOfViewDegrees(Overlay.Width, Overlay.Height),
+			_overlay.Focused?.Name));
 
 		_overlay.Pose = pose;
 		Overlay.Invalidate();
@@ -426,6 +443,21 @@ public partial class MainPage : ContentPage
 	}
 
 	private void OnDetailClosed(object? sender, EventArgs e) => ShowDetail(null, pin: false);
+
+	private void OnRecordClicked(object? sender, EventArgs e)
+	{
+		if (_recorder.IsRecording)
+		{
+			_recorder.Stop();
+			RecordButton.Text = "Spustit záznam relace";
+			ShowStatus($"Záznam uložen: {Path.GetFileName(_recorder.CurrentFile)}");
+		}
+		else
+		{
+			_recorder.Start();
+			RecordButton.Text = "Zastavit záznam relace";
+		}
+	}
 
 	private async void OnWikipediaClicked(object? sender, EventArgs e)
 	{
