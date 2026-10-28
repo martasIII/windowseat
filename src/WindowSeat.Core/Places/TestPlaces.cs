@@ -12,30 +12,30 @@ public static class TestPlaces
     public static IReadOnlyList<Place> All { get; } =
     [
         // Praha 6, blízké cíle na kontrolu přesnosti.
-        new("Letohrádek Hvězda", new GeoPoint(50.0834, 14.3263, 405), PlaceKind.Landmark, 20),
+        new("Letohrádek Hvězda", new GeoPoint(50.0834, 14.3263, 405), PlaceKind.Castle, 20),
         new("Bílá hora", new GeoPoint(50.07861, 14.31944, 381), PlaceKind.Peak, 10),
 
         // Výška odhadnutá: terén v Liboci kolem 335 m n. m. a vršek věže zhruba o 25 m výš.
-        new("Kostel sv. Fabiána a Šebestiána", new GeoPoint(50.0870494, 14.3289025, 360), PlaceKind.Landmark, 3),
+        new("Kostel sv. Fabiána a Šebestiána", new GeoPoint(50.0870494, 14.3289025, 360), PlaceKind.Church, 3),
 
         // Pražské památky.
-        new("Katedrála sv. Víta", new GeoPoint(50.090833, 14.400556, 320), PlaceKind.Landmark, 60),
+        new("Katedrála sv. Víta", new GeoPoint(50.090833, 14.400556, 320), PlaceKind.Church, 60),
         new("Karlův most", new GeoPoint(50.086389, 14.411944, 195), PlaceKind.Bridge, 62),
-        new("Kostel sv. Mikuláše", new GeoPoint(50.087778, 14.403611, 255), PlaceKind.Landmark, 26),
-        new("Týnský chrám", new GeoPoint(50.08771, 14.4227, 265), PlaceKind.Landmark, 38),
-        new("Národní divadlo", new GeoPoint(50.081111, 14.413611, 220), PlaceKind.Landmark, 38),
-        new("Národní muzeum", new GeoPoint(50.079843, 14.430417, 290), PlaceKind.Landmark, 41),
-        new("Tančící dům", new GeoPoint(50.075556, 14.414167, 215), PlaceKind.Landmark, 50),
-        new("Rudolfinum", new GeoPoint(50.0900, 14.4156, 210), PlaceKind.Landmark, 26),
-        new("Staroměstská radnice", new GeoPoint(50.087108, 14.420607, 245), PlaceKind.Landmark, 23),
-        new("Prašná brána", new GeoPoint(50.087222, 14.427778, 245), PlaceKind.Landmark, 28),
-        new("Staroměstská mostecká věž", new GeoPoint(50.086293, 14.413655, 230), PlaceKind.Landmark, 11),
-        new("Malostranská mostecká věž", new GeoPoint(50.087314, 14.40686, 230), PlaceKind.Landmark, 11),
-        new("Strahovský klášter", new GeoPoint(50.085963, 14.389282, 315), PlaceKind.Landmark, 33),
-        new("Emauzy", new GeoPoint(50.072222, 14.4175, 225), PlaceKind.Landmark, 19),
-        new("Vyšehrad", new GeoPoint(50.064427, 14.417644, 270), PlaceKind.Landmark, 40),
-        new("Petřínská rozhledna", new GeoPoint(50.083544, 14.39505, 370), PlaceKind.Landmark, 22),
-        new("Žižkovský vysílač", new GeoPoint(50.080833, 14.451389, 400), PlaceKind.Landmark, 29),
+        new("Kostel sv. Mikuláše", new GeoPoint(50.087778, 14.403611, 255), PlaceKind.Church, 26),
+        new("Týnský chrám", new GeoPoint(50.08771, 14.4227, 265), PlaceKind.Church, 38),
+        new("Národní divadlo", new GeoPoint(50.081111, 14.413611, 220), PlaceKind.Building, 38),
+        new("Národní muzeum", new GeoPoint(50.079843, 14.430417, 290), PlaceKind.Building, 41),
+        new("Tančící dům", new GeoPoint(50.075556, 14.414167, 215), PlaceKind.Building, 50),
+        new("Rudolfinum", new GeoPoint(50.0900, 14.4156, 210), PlaceKind.Building, 26),
+        new("Staroměstská radnice", new GeoPoint(50.087108, 14.420607, 245), PlaceKind.Tower, 23),
+        new("Prašná brána", new GeoPoint(50.087222, 14.427778, 245), PlaceKind.Tower, 28),
+        new("Staroměstská mostecká věž", new GeoPoint(50.086293, 14.413655, 230), PlaceKind.Tower, 11),
+        new("Malostranská mostecká věž", new GeoPoint(50.087314, 14.40686, 230), PlaceKind.Tower, 11),
+        new("Strahovský klášter", new GeoPoint(50.085963, 14.389282, 315), PlaceKind.Church, 33),
+        new("Emauzy", new GeoPoint(50.072222, 14.4175, 225), PlaceKind.Church, 19),
+        new("Vyšehrad", new GeoPoint(50.064427, 14.417644, 270), PlaceKind.Castle, 40),
+        new("Petřínská rozhledna", new GeoPoint(50.083544, 14.39505, 370), PlaceKind.Tower, 22),
+        new("Žižkovský vysílač", new GeoPoint(50.080833, 14.451389, 400), PlaceKind.Tower, 29),
 
         // Mosty přes Vltavu, po proudu.
         new("Palackého most", new GeoPoint(50.072778, 14.412222, 195), PlaceKind.Bridge, 12),

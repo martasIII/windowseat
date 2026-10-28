@@ -33,19 +33,25 @@
             </GraphicsView.GestureRecognizers>
         </GraphicsView>
 
-        <!-- Živé hodnoty senzorů: kontrola, že orientace a poloha dávají smysl. -->
+        <!-- Stav v jednom řádku; klepnutím se rozbalí živé hodnoty senzorů. -->
         <Border VerticalOptions="Start"
-                Margin="12,40,12,0"
-                Padding="12,8"
+                HorizontalOptions="Start"
+                Margin="12,10,12,0"
+                Padding="12,5"
                 StrokeThickness="0"
-                BackgroundColor="#99000000"
-                InputTransparent="True">
+                BackgroundColor="#99000000">
             <Border.StrokeShape>
-                <RoundRectangle CornerRadius="10" />
+                <RoundRectangle CornerRadius="14" />
             </Border.StrokeShape>
+            <Border.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnStatusTapped" />
+            </Border.GestureRecognizers>
             <VerticalStackLayout Spacing="2">
-                <Label x:Name="PoseLabel" Style="{StaticResource Readout}" Text="Orientace: čekám…" />
-                <Label x:Name="LocationLabel" Style="{StaticResource Readout}" Text="Poloha: čekám…" />
+                <Label x:Name="StatusLine" Style="{StaticResource Readout}" Text="Čekám na senzory…" />
+                <VerticalStackLayout x:Name="StatusDetails" IsVisible="False" Spacing="2" Margin="0,4,0,0">
+                    <Label x:Name="PoseLabel" Style="{StaticResource Readout}" Text="Orientace: čekám…" />
+                    <Label x:Name="LocationLabel" Style="{StaticResource Readout}" Text="Poloha: čekám…" />
+                </VerticalStackLayout>
                 <Label x:Name="StatusLabel" TextColor="#FFB4B2A9" FontSize="13" IsVisible="False" />
             </VerticalStackLayout>
         </Border>
@@ -73,6 +79,26 @@
                 </Grid>
             </Border>
 
+            <!-- Detail místa po klepnutí na popisek. -->
+            <Border x:Name="DetailCard"
+                    IsVisible="False"
+                    Padding="14,10"
+                    StrokeThickness="0"
+                    BackgroundColor="#E6000000">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="12" />
+                </Border.StrokeShape>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <VerticalStackLayout Spacing="2">
+                        <Label x:Name="DetailName" TextColor="White" FontSize="18" FontAttributes="Bold" />
+                        <Label x:Name="DetailMeta" TextColor="#B4B2A9" FontSize="13" />
+                        <Label x:Name="DetailDescription" TextColor="White" FontSize="14" Margin="0,4,0,0" />
+                    </VerticalStackLayout>
+                    <Button Grid.Column="1" Text="✕" VerticalOptions="Start" Clicked="OnDetailClosed"
+                            BackgroundColor="Transparent" TextColor="White" Padding="8,0" />
+                </Grid>
+            </Border>
+
             <Border x:Name="SettingsPanel"
                     IsVisible="False"
                     Padding="14,10"
@@ -81,8 +107,12 @@
                 <Border.StrokeShape>
                     <RoundRectangle CornerRadius="12" />
                 </Border.StrokeShape>
+                <ScrollView MaximumHeightRequest="560">
                 <VerticalStackLayout Spacing="6">
-                    <Label Text="Směr kamery" Style="{StaticResource SettingLabel}" />
+                    <Label Text="Vrstvy a jejich přednost" Style="{StaticResource SettingLabel}" FontAttributes="Bold" />
+                    <VerticalStackLayout x:Name="LayersPanel" Spacing="4" />
+
+                    <Label Text="Směr kamery" Style="{StaticResource SettingLabel}" FontAttributes="Bold" Margin="0,8,0,0" />
                     <Picker x:Name="HeadingPicker"
                             TextColor="White"
                             BackgroundColor="#33FFFFFF"
@@ -135,6 +165,7 @@
 
                     <Label x:Name="DataLabel" TextColor="#B4B2A9" FontSize="12" Margin="0,6,0,0" />
                 </VerticalStackLayout>
+                </ScrollView>
             </Border>
 
             <Button x:Name="SettingsButton"

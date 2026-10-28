@@ -12,7 +12,23 @@ public partial class MainPage : ContentPage
 	private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
 	// Jak daleko od popisku ještě bereme klepnutí jako výběr toho popisku.
-	private const double LabelHitRadius = 90;
+	private const double LabelHitRadius = 60;
+
+	private static readonly Dictionary<PlaceKind, string> KindNames = new()
+	{
+		[PlaceKind.Peak] = "Vrcholy",
+		[PlaceKind.Tower] = "Věže a rozhledny",
+		[PlaceKind.Castle] = "Hrady, zámky, paláce",
+		[PlaceKind.Church] = "Kostely a kláštery",
+		[PlaceKind.Bridge] = "Mosty",
+		[PlaceKind.City] = "Města a obce",
+		[PlaceKind.Building] = "Ostatní stavby",
+		[PlaceKind.CelestialBody] = "Na obloze",
+	};
+
+	private static readonly string[] LevelNames = ["vypnuto", "nízká", "běžná", "vysoká"];
+
+	private string _statusPosition = "čekám na GPS";
 
 	private readonly PlacesOverlay _overlay = new(TestPlaces.All);
 	private readonly OrientationSource _orientation = new();
@@ -165,24 +181,25 @@ public partial class MainPage : ContentPage
 		_lastFusedAzimuth = _fusion.Update(gyro.AzimuthDegrees, compassAzimuth, reading.Timestamp);
 
 		var mode = AppSettings.HeadingMode;
+		var compassDisturbed = Math.Abs(_fusion.CompassDeviationDegrees) > HeadingFusion.DisturbanceThresholdDegrees;
 		CameraPose pose;
-		string source;
+		string source, shortSource;
 
 		if (mode != HeadingMode.Compass && _course is { } course)
 		{
 			pose = gyro with { AzimuthDegrees = Heading.CameraAzimuthFromCourse(course, mode) };
-			source = "kurz GPS";
+			(source, shortSource) = ("kurz GPS", "kurz GPS");
 		}
 		else
 		{
 			pose = gyro with { AzimuthDegrees = _lastFusedAzimuth };
-			source = _fusion.IsLocked
-				? "gyroskop, kalibrováno"
-				: Math.Abs(_fusion.CompassDeviationDegrees) > HeadingFusion.DisturbanceThresholdDegrees
-					? string.Format(Invariant, "kompas rušen {0:+0;-0}°, drží gyroskop", _fusion.CompassDeviationDegrees)
-					: string.Format(Invariant, "gyroskop + kompas {0:+0;-0}°", _fusion.CompassDeviationDegrees);
+			(source, shortSource) = _fusion.IsLocked
+				? ("gyroskop, kalibrováno", "kalibrováno")
+				: compassDisturbed
+					? (string.Format(Invariant, "kompas rušen {0:+0;-0}°, drží gyroskop", _fusion.CompassDeviationDegrees), "kompas rušen")
+					: (string.Format(Invariant, "gyroskop + kompas {0:+0;-0}°", _fusion.CompassDeviationDegrees), "kompas ✓");
 			if (mode != HeadingMode.Compass)
-				source += ", kurz čeká na jízdu";
+				(source, shortSource) = (source + ", kurz čeká na jízdu", "čekám na jízdu");
 		}
 
 		pose = _correction.ApplyTo(pose);
@@ -190,6 +207,7 @@ public partial class MainPage : ContentPage
 		PoseLabel.Text = string.Format(Invariant,
 			"Směr {0,5:0.0}° ({3})\nvýška {1,5:0.0}°  náklon {2,5:0.0}°",
 			pose.AzimuthDegrees, pose.ElevationDegrees, pose.RollDegrees, source);
+		StatusLine.Text = string.Format(Invariant, "{0:0}° · {1} · {2}", pose.AzimuthDegrees, shortSource, _statusPosition);
 
 		_overlay.Pose = pose;
 		Overlay.Invalidate();
@@ -217,8 +235,11 @@ public partial class MainPage : ContentPage
 		else
 		{
 			LocationLabel.Text = "Poloha: čekám na GPS (nebo zapni ruční)";
+			_statusPosition = "čekám na GPS";
 			return;
 		}
+
+		_statusPosition = source == "ruční" ? "ruční poloha" : source;
 
 		var (altitude, altitudeSource) = ObserverAltitude(latitude, longitude);
 
@@ -284,23 +305,29 @@ public partial class MainPage : ContentPage
 
 	private void OnOverlayTapped(object? sender, TappedEventArgs e)
 	{
-		if (_calibration == CalibrationStep.Off || e.GetPosition(Overlay) is not { } position)
+		if (e.GetPosition(Overlay) is not { } position)
 			return;
 
 		var tapped = new ScreenPoint(position.X, position.Y);
+		var nearest = _overlay.Drawn
+			.Select(label => (label, distance: DistanceToLabel(label, tapped)))
+			.Where(x => x.distance < LabelHitRadius)
+			.OrderBy(x => x.distance)
+			.Select(x => x.label)
+			.FirstOrDefault();
+
+		if (_calibration == CalibrationStep.Off)
+		{
+			ShowDetail(nearest);
+			return;
+		}
 
 		if (_calibration == CalibrationStep.PickLabel)
 		{
-			var nearest = _overlay.Drawn
-				.Select(label => (label, distance: DistanceToLabel(label, tapped)))
-				.Where(x => x.distance < LabelHitRadius)
-				.OrderBy(x => x.distance)
-				.Select(x => x.label)
-				.FirstOrDefault();
-
 			if (nearest is null)
 				return;
 
+			DetailCard.IsVisible = false;
 			_overlay.Highlighted = nearest.Place;
 			SetCalibration(CalibrationStep.PickTarget, $"Teď klepni přesně na skutečné místo: {nearest.Place.Name}.");
 			return;
@@ -325,11 +352,82 @@ public partial class MainPage : ContentPage
 
 	private static double DistanceToLabel(DrawnLabel label, ScreenPoint tapped)
 	{
-		// Klepnout jde na tečku i na text nad ní; bereme bližší z obou.
+		// Klepnout jde na tečku u cíle i na svislý popisek v pruhu; bereme bližší z obou.
 		var toDot = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - tapped.Y, 2));
-		var toText = Math.Sqrt(Math.Pow(label.LabelCentre.X - tapped.X, 2) + Math.Pow(label.LabelCentre.Y - tapped.Y, 2));
+		var alongText = Math.Max(0, Math.Abs(label.LabelCentre.Y - tapped.Y) - label.LabelLength / 2);
+		var toText = Math.Sqrt(Math.Pow(label.LabelCentre.X - tapped.X, 2) + Math.Pow(alongText, 2));
 		return Math.Min(toDot, toText);
 	}
+
+	/// <summary>Kartička s detailem klepnutého místa; klepnutí mimo popisky ji zavře.</summary>
+	private void ShowDetail(DrawnLabel? label)
+	{
+		_overlay.Highlighted = label?.Place;
+		DetailCard.IsVisible = label is not null;
+		Overlay.Invalidate();
+		if (label is null)
+			return;
+
+		var place = label.Place;
+		var distance = place.Kind == PlaceKind.CelestialBody
+			? string.Format(Invariant, "{0:0}° nad obzorem", label.LineOfSight.ElevationDegrees)
+			: label.LineOfSight.DistanceMeters < 10_000
+				? string.Format(Invariant, "{0:0.0} km", label.LineOfSight.DistanceMeters / 1000)
+				: string.Format(Invariant, "{0:0} km", label.LineOfSight.DistanceMeters / 1000);
+
+		DetailName.Text = place.Name;
+		DetailMeta.Text = string.Format(Invariant, "{0} · {1} · směr {2:0}°", KindNames[place.Kind], distance, label.LineOfSight.AzimuthDegrees);
+		DetailDescription.Text = place.Description;
+		DetailDescription.IsVisible = !string.IsNullOrEmpty(place.Description);
+	}
+
+	private void OnDetailClosed(object? sender, EventArgs e) => ShowDetail(null);
+
+	private void OnStatusTapped(object? sender, TappedEventArgs e) => StatusDetails.IsVisible = !StatusDetails.IsVisible;
+
+	/// <summary>Řádky pro vrstvy: název a přednost (vypnuto, nízká, běžná, vysoká).</summary>
+	private void BuildLayerSettings()
+	{
+		var layers = AppSettings.Layers;
+		_overlay.Layers = layers;
+
+		foreach (var kind in LayerWeights.Configurable)
+		{
+			var picker = new Picker
+			{
+				ItemsSource = LevelNames,
+				TextColor = Colors.White,
+				BackgroundColor = Color.FromArgb("#33FFFFFF"),
+				WidthRequest = 120,
+				SelectedIndex = NearestLevel(layers[kind]),
+			};
+			picker.SelectedIndexChanged += (_, _) =>
+			{
+				if (picker.SelectedIndex < 0)
+					return;
+
+				_overlay.Layers = _overlay.Layers.With(kind, LayerWeights.Levels[picker.SelectedIndex]);
+				AppSettings.Layers = _overlay.Layers;
+				Overlay.Invalidate();
+			};
+
+			var row = new Grid { ColumnDefinitions = [new ColumnDefinition(GridLength.Star), new ColumnDefinition(GridLength.Auto)] };
+			row.Add(new Label
+			{
+				Text = KindNames[kind],
+				TextColor = PlacesOverlay.ColorOf(kind),
+				FontSize = 15,
+				VerticalOptions = LayoutOptions.Center,
+			});
+			row.Add(picker, 1);
+			LayersPanel.Add(row);
+		}
+	}
+
+	private static int NearestLevel(double weight) =>
+		LayerWeights.Levels
+			.Select((level, index) => (distance: Math.Abs(level - weight), index))
+			.MinBy(x => x.distance).index;
 
 	private void OnCalibrationCancelled(object? sender, EventArgs e)
 	{
@@ -374,6 +472,7 @@ public partial class MainPage : ContentPage
 		ApplyFieldOfView();
 		_correction = AppSettings.Correction;
 		ShowCorrection();
+		BuildLayerSettings();
 		_loadingSettings = false;
 	}
 

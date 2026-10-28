@@ -6,13 +6,18 @@ using WindowSeat.Core.Sky;
 
 namespace WindowSeat.App;
 
-/// <summary>Kreslí popisky míst přes náhled kamery podle aktuální pózy a polohy.</summary>
+/// <summary>
+/// Kreslí popisky míst přes náhled kamery: svisle v pruhu u horního okraje, s čarou dolů k cíli.
+/// Nic se nekříží a krajina pod pruhem zůstává volná; co se nevejde, ustoupí známějším a bližším místům.
+/// </summary>
 public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 {
-    private const float FontSize = 15;
-    private const float LabelHeight = 24;
-    private const float LabelPadding = 16;
-    private const float MaxLabelWidth = 300;
+    private const float FontSize = 14;
+    private const float PillThickness = 22;
+    private const float ColumnWidth = 26;
+    private const float BandTop = 70;
+    private const float BandLength = 230;
+    private const float BandBottom = BandTop + BandLength;
 
     private readonly List<DrawnLabel> _drawn = [];
     private readonly Dictionary<string, float> _textWidths = [];
@@ -47,6 +52,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     public CameraPose? Pose { get; set; }
 
+    public LayerWeights Layers { get; set; } = LayerWeights.Default;
+
     /// <summary>Zorný úhel objektivu ze systému; z něj a rozměrů obrazovky se počítá úhel přes šířku.</summary>
     public LensFieldOfView? Lens { get; set; }
 
@@ -59,7 +66,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         ?? Lens?.VisibleHorizontalDegrees(width, height)
         ?? 50;
 
-    /// <summary>Místo vybrané pro kalibraci; zvýrazní se.</summary>
+    /// <summary>Vybrané místo (kalibrace nebo detail); má přednost a zvýrazní se.</summary>
     public Place? Highlighted { get; set; }
 
     /// <summary>Promítání a rozměry z posledního vykreslení, aby šlo klepnutí převést zpět na směr.</summary>
@@ -82,30 +89,28 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         LastFrame = (projector, dirtyRect.Width, dirtyRect.Height);
 
         canvas.FontSize = FontSize;
-        canvas.FontColor = Colors.White;
 
-        var requests = new List<LabelLayout.Request<(Place Place, LineOfSight Los, string Text)>>();
+        var candidates = new List<SkylineLayout.Candidate<(Place Place, LineOfSight Los, string Text)>>();
         foreach (var (place, los) in _sightings.Concat(SkySightings()))
         {
+            if (!Layers.IsVisible(place.Kind) && place != Highlighted)
+                continue;
             if (projector.Project(pose, los, dirtyRect.Width, dirtyRect.Height) is not { } point)
                 continue;
 
             var text = place.Kind == PlaceKind.CelestialBody ? place.Name : $"{place.Name} · {Distance(los)}";
-            var width = Math.Min(MaxLabelWidth, TextWidth(canvas, text) + LabelPadding);
-
-            // Vybraný cíl kalibrace musí zůstat vidět, i kdyby byl nejméně známý.
-            var importance = place == Highlighted ? int.MaxValue : place.Importance;
-            requests.Add(new((place, los, text), point, importance, width));
+            var score = place == Highlighted ? double.PositiveInfinity : Layers.Score(place, los.DistanceMeters);
+            candidates.Add(new((place, los, text), point, score));
         }
 
-        foreach (var label in LabelLayout.Arrange(requests, MaxLabelWidth, LabelHeight))
+        foreach (var slot in SkylineLayout.Arrange(candidates, dirtyRect.Width, ColumnWidth))
         {
-            var (place, los, text) = label.Item;
-            var box = LabelLayout.Box(label.Anchor, label.Level, label.Width, LabelHeight);
-            var centre = new ScreenPoint((box.Left + box.Right) / 2, (box.Top + box.Bottom) / 2);
+            var (place, los, text) = slot.Item;
+            var length = Math.Min(BandLength, TextWidth(canvas, text) + 14);
+            var centre = new ScreenPoint(slot.LabelX, BandBottom - length / 2);
 
-            _drawn.Add(new DrawnLabel(place, los, label.Anchor, centre));
-            DrawLabel(canvas, place, text, label.Anchor, box, place == Highlighted);
+            _drawn.Add(new DrawnLabel(place, los, slot.Anchor, centre, length));
+            DrawLabel(canvas, place, text, slot, length, place == Highlighted);
         }
     }
 
@@ -126,8 +131,8 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
 
     private static readonly (Place Place, CelestialBody Body)[] SkyPlaces =
     [
-        (new Place("Slunce", default, PlaceKind.CelestialBody, int.MaxValue - 1), CelestialBody.Sun),
-        (new Place("Měsíc", default, PlaceKind.CelestialBody, int.MaxValue - 1), CelestialBody.Moon),
+        (new Place("Slunce", default, PlaceKind.CelestialBody), CelestialBody.Sun),
+        (new Place("Měsíc", default, PlaceKind.CelestialBody), CelestialBody.Moon),
     ];
 
     private List<(Place, LineOfSight)> Sightings(GeoPoint? observer) =>
@@ -153,42 +158,46 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         ? $"{los.DistanceMeters / 1000:0.0} km"
         : $"{los.DistanceMeters / 1000:0} km";
 
+    public static Color ColorOf(PlaceKind kind) => kind switch
+    {
+        PlaceKind.Peak => Color.FromArgb("#EF9F27"),
+        PlaceKind.Bridge => Color.FromArgb("#85B7EB"),
+        PlaceKind.CelestialBody => Color.FromArgb("#FAC775"),
+        PlaceKind.City => Colors.White,
+        PlaceKind.Building => Color.FromArgb("#B4B2A9"),
+        _ => Color.FromArgb("#5DCAA5"),
+    };
+
     private static void DrawLabel(
         ICanvas canvas,
         Place place,
         string text,
-        ScreenPoint anchor,
-        (double Left, double Top, double Right, double Bottom) box,
+        SkylineLayout.Slot<(Place, LineOfSight, string)> slot,
+        float length,
         bool highlighted)
     {
-        var color = highlighted
-            ? Color.FromArgb("#F0997B")
-            : place.Kind switch
-            {
-                PlaceKind.Peak => Color.FromArgb("#EF9F27"),
-                PlaceKind.Landmark => Color.FromArgb("#5DCAA5"),
-                PlaceKind.Bridge => Color.FromArgb("#85B7EB"),
-                PlaceKind.CelestialBody => Color.FromArgb("#FAC775"),
-                _ => Colors.White,
-            };
+        var color = highlighted ? Color.FromArgb("#F0997B") : ColorOf(place.Kind);
+        var labelX = (float)slot.LabelX;
+        var anchorX = (float)slot.Anchor.X;
+        var anchorY = (float)slot.Anchor.Y;
 
-        var x = (float)anchor.X;
-        var y = (float)anchor.Y;
-
-        // Čárka z cíle k popisku; u popisku posunutého o patro výš je delší.
+        // Čára od spodku popisku k cíli; když popisek uhnul vedle, je šikmá.
         canvas.StrokeColor = color;
-        canvas.StrokeSize = highlighted ? 3 : 2;
-        canvas.DrawLine(x, y, x, (float)box.Bottom);
+        canvas.StrokeSize = highlighted ? 2.5f : 1.5f;
+        canvas.DrawLine(labelX, BandBottom + 3, anchorX, anchorY);
         canvas.FillColor = color;
-        canvas.FillCircle(x, y, highlighted ? 5 : 3);
+        canvas.FillCircle(anchorX, anchorY, highlighted ? 5 : 3);
 
-        var left = (float)box.Left;
-        var top = (float)box.Top;
-        var width = (float)(box.Right - box.Left);
-        canvas.FillColor = highlighted ? Color.FromArgb("#B3712B13") : Color.FromRgba(0, 0, 0, 0.55);
-        canvas.FillRoundedRectangle(left, top, width, LabelHeight, 6);
-        canvas.DrawString(text, left, top, width, LabelHeight, HorizontalAlignment.Center, VerticalAlignment.Center);
+        // Text svisle zdola nahoru, začíná u spodního okraje pruhu.
+        canvas.SaveState();
+        canvas.Translate(labelX, BandBottom);
+        canvas.Rotate(-90);
+        canvas.FillColor = highlighted ? Color.FromArgb("#CC712B13") : Color.FromRgba(0, 0, 0, 0.55);
+        canvas.FillRoundedRectangle(0, -PillThickness / 2, length, PillThickness, PillThickness / 2);
+        canvas.FontColor = Colors.White;
+        canvas.DrawString(text, 7, -PillThickness / 2, length - 14, PillThickness, HorizontalAlignment.Left, VerticalAlignment.Center);
+        canvas.RestoreState();
     }
 }
 
-public sealed record DrawnLabel(Place Place, LineOfSight LineOfSight, ScreenPoint Point, ScreenPoint LabelCentre);
+public sealed record DrawnLabel(Place Place, LineOfSight LineOfSight, ScreenPoint Point, ScreenPoint LabelCentre, double LabelLength);

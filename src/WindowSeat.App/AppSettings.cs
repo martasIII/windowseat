@@ -1,4 +1,5 @@
 using WindowSeat.Core.Orientation;
+using WindowSeat.Core.Places;
 using WindowSeat.Core.Projection;
 
 namespace WindowSeat.App;
@@ -40,6 +41,19 @@ public static class AppSettings
     {
         get => (HeadingMode)Preferences.Default.Get(nameof(HeadingMode), (int)HeadingMode.Compass);
         set => Preferences.Default.Set(nameof(HeadingMode), (int)value);
+    }
+
+    /// <summary>Přednost vrstev; co uživatel nezměnil, má výchozí hodnotu.</summary>
+    public static LayerWeights Layers
+    {
+        get => LayerWeights.Configurable.Aggregate(
+            LayerWeights.Default,
+            (layers, kind) => layers.With(kind, Preferences.Default.Get($"Layer.{kind}", LayerWeights.Default[kind])));
+        set
+        {
+            foreach (var kind in LayerWeights.Configurable)
+                Preferences.Default.Set($"Layer.{kind}", value[kind]);
+        }
     }
 
     /// <summary>Oprava pózy z poslední kalibrace na známý cíl.</summary>

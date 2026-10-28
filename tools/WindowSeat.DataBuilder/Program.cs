@@ -54,7 +54,14 @@ return 0;
 static double Parse(string value) => double.Parse(value, CultureInfo.InvariantCulture);
 
 /// <summary>Místo z Wikidat, zatím bez výšky terénu.</summary>
-internal sealed record Candidate(string Name, GeoPoint Location, PlaceKind Kind, int Importance, double? HeightMeters, double? ElevationMeters)
+internal sealed record Candidate(
+    string Name,
+    GeoPoint Location,
+    PlaceKind Kind,
+    int Importance,
+    double? HeightMeters,
+    double? ElevationMeters,
+    string? Description)
 {
     public Place ToPlace(double? groundMeters)
     {
@@ -63,15 +70,18 @@ internal sealed record Candidate(string Name, GeoPoint Location, PlaceKind Kind,
             ? summit
             : (groundMeters ?? ElevationMeters ?? 0) + AimHeight();
 
-        return new Place(Name, Location with { AltitudeMeters = Math.Round(altitude) }, Kind, Importance);
+        return new Place(Name, Location with { AltitudeMeters = Math.Round(altitude) }, Kind, Importance, Description);
     }
 
+    // Bez známé výšky stavby odhad podle druhu: věže a kostely jsou vidět hlavně nahoře.
     private double AimHeight() => HeightMeters is { } height
         ? 0.8 * height
         : Kind switch
         {
-            PlaceKind.Bridge => 8,
             PlaceKind.Peak => 0,
+            PlaceKind.Bridge => 8,
+            PlaceKind.Tower => 25,
+            PlaceKind.Church => 25,
             _ => 15,
         };
 }
@@ -83,19 +93,32 @@ internal static class Wikidata
     // dálnice a silnice, kanály, lanovky.
     private const string Excluded = "wd:Q174782 wd:Q39614 wd:Q381885 wd:Q42948 wd:Q79007 wd:Q1107656 wd:Q22698 wd:Q179700 wd:Q860861 wd:Q721747 wd:Q1248784 wd:Q644371 wd:Q928830 wd:Q2175765 wd:Q46622 wd:Q34442 wd:Q12284 wd:Q142031";
 
+    // Vrstvy podle toho, co je z dálky vidět; pořadí řádků = přednost, když položka patří do víc tříd
+    // (rozhledna je i budova, katedrála i kostel). Obecná „budova“ jen pro hodně známé stavby.
+    private const string Layers = """
+        (wd:Q12280 "Bridge" 1)
+        (wd:Q8502 "Peak" 2) (wd:Q54050 "Peak" 2)
+        (wd:Q12518 "Tower" 3) (wd:Q1440300 "Tower" 3) (wd:Q11166728 "Tower" 3) (wd:Q18142 "Tower" 3)
+        (wd:Q16970 "Church" 4) (wd:Q2977 "Church" 4) (wd:Q34627 "Church" 4) (wd:Q44613 "Church" 4) (wd:Q32815 "Church" 4)
+        (wd:Q23413 "Castle" 5) (wd:Q16560 "Castle" 5) (wd:Q751876 "Castle" 5) (wd:Q57821 "Castle" 5)
+        (wd:Q41176 "Building" 9)
+        """;
+
+    private const int MinBuildingLinks = 8;
+
     public static async Task<List<Candidate>> QueryAsync(HttpClient http, GeoPoint center, double radiusKm, int minLinks)
     {
         var point = FormattableString.Invariant($"Point({center.LongitudeDegrees} {center.LatitudeDegrees})");
         var radius = radiusKm.ToString(CultureInfo.InvariantCulture);
 
         var sparql = $$"""
-            SELECT ?item ?cs ?en ?coord ?links ?kind ?height ?elevation WHERE {
+            SELECT ?item ?cs ?en ?description ?coord ?links ?kind ?rank ?height ?elevation WHERE {
               SERVICE wikibase:around {
                 ?item wdt:P625 ?coord .
                 bd:serviceParam wikibase:center "{{point}}"^^geo:wktLiteral ; wikibase:radius "{{radius}}" .
               }
               ?item wikibase:sitelinks ?links . FILTER(?links >= {{minLinks}})
-              VALUES (?class ?kind) { (wd:Q12280 "Bridge") (wd:Q8502 "Peak") (wd:Q54050 "Peak") (wd:Q811979 "Landmark") }
+              VALUES (?class ?kind ?rank) { {{Layers}} }
               ?item wdt:P31/wdt:P279* ?class .
               # Zbořené a zaniklé stavby (Juditin most…) mají souřadnice taky, ale vidět nejsou.
               FILTER NOT EXISTS { ?item wdt:P576 ?demolished . }
@@ -105,6 +128,7 @@ internal static class Wikidata
               FILTER(?kind = "Bridge" || NOT EXISTS { VALUES ?excluded { {{Excluded}} } ?item wdt:P31 ?excluded . })
               OPTIONAL { ?item rdfs:label ?cs FILTER(lang(?cs) = "cs") }
               OPTIONAL { ?item rdfs:label ?en FILTER(lang(?en) = "en") }
+              OPTIONAL { ?item schema:description ?description FILTER(lang(?description) = "cs") }
               OPTIONAL { ?item wdt:P2048 ?height }
               OPTIONAL { ?item wdt:P2044 ?elevation }
             }
@@ -115,26 +139,25 @@ internal static class Wikidata
         response.EnsureSuccessStatusCode();
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
 
-        // Jedna položka přijde v několika řádcích (víc tříd, víc výšek); bereme nejkonkrétnější druh.
+        // Jedna položka přijde v několika řádcích (víc tříd, víc výšek); vrstvu bereme podle nejvyšší přednosti.
         return json.RootElement.GetProperty("results").GetProperty("bindings").EnumerateArray()
             .GroupBy(row => Value(row, "item")!)
             .Select(rows =>
             {
                 var first = rows.First();
-                var kinds = rows.Select(r => Enum.Parse<PlaceKind>(Value(r, "kind")!)).ToHashSet();
-                var kind = kinds.Contains(PlaceKind.Bridge) ? PlaceKind.Bridge
-                    : kinds.Contains(PlaceKind.Peak) ? PlaceKind.Peak
-                    : PlaceKind.Landmark;
-
+                var kind = Enum.Parse<PlaceKind>(Value(rows.MinBy(r => Number(r, "rank"))!, "kind")!);
                 var name = Value(first, "cs") ?? Value(first, "en") ?? rows.Key[(rows.Key.LastIndexOf('/') + 1)..];
+
                 return new Candidate(
-                    char.ToUpperInvariant(name[0]) + name[1..],
+                    PlaceNames.Shorten(name),
                     ParsePoint(Value(first, "coord")!),
                     kind,
                     int.Parse(Value(first, "links")!, CultureInfo.InvariantCulture),
                     rows.Select(r => Number(r, "height")).Max(),
-                    rows.Select(r => Number(r, "elevation")).Max());
+                    rows.Select(r => Number(r, "elevation")).Max(),
+                    Value(first, "description"));
             })
+            .Where(c => c.Kind != PlaceKind.Building || c.Importance >= MinBuildingLinks)
             .ToList();
     }
 
