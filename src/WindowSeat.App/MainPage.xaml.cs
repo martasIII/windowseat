@@ -33,6 +33,8 @@ public partial class MainPage : ContentPage
 	private readonly PlacesOverlay _overlay = new(TestPlaces.All);
 	private readonly OrientationSource _orientation = new();
 	private readonly HeadingFusion _fusion = new();
+	private readonly PoseSmoother _smoother = new(TimeSpan.FromMilliseconds(150));
+	private bool _pinned;
 	private double _lastGyroAzimuth;
 	private double _lastFusedAzimuth;
 
@@ -61,6 +63,24 @@ public partial class MainPage : ContentPage
 		Overlay.Drawable = _overlay;
 
 		_orientation.ReadingChanged += reading => MainThread.BeginInvokeOnMainThread(() => ShowPose(reading));
+
+		// Zaměřování kroužkem; události přicházejí z kreslení, UI měníme až po něm.
+		_overlay.FocusAcquired += _ => MainThread.BeginInvokeOnMainThread(() =>
+		{
+			Vibrate();
+			if (!_pinned)
+				DetailCard.IsVisible = false;
+		});
+		_overlay.FocusDwelled += label => MainThread.BeginInvokeOnMainThread(() =>
+		{
+			if (!_pinned && _calibration == CalibrationStep.Off)
+				ShowDetail(label, pin: false);
+		});
+		_overlay.FocusLost += () =>
+		{
+			if (!_pinned && DetailCard.IsVisible)
+				MainThread.BeginInvokeOnMainThread(() => DetailCard.IsVisible = _pinned);
+		};
 
 		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() =>
 		{
@@ -202,7 +222,7 @@ public partial class MainPage : ContentPage
 				(source, shortSource) = (source + ", kurz čeká na jízdu", "čekám na jízdu");
 		}
 
-		pose = _correction.ApplyTo(pose);
+		pose = _smoother.Smooth(_correction.ApplyTo(pose), reading.Timestamp);
 
 		PoseLabel.Text = string.Format(Invariant,
 			"Směr {0,5:0.0}° ({3})\nvýška {1,5:0.0}°  náklon {2,5:0.0}°",
@@ -318,7 +338,8 @@ public partial class MainPage : ContentPage
 
 		if (_calibration == CalibrationStep.Off)
 		{
-			ShowDetail(nearest);
+			// Klepnutí na ikonku ji přišpendlí; klepnutí jinam ji pustí.
+			ShowDetail(nearest, pin: nearest is not null);
 			return;
 		}
 
@@ -359,10 +380,14 @@ public partial class MainPage : ContentPage
 		return Math.Min(toDot, Math.Sqrt(dx * dx + dy * dy));
 	}
 
-	/// <summary>Kartička s detailem klepnutého místa; klepnutí mimo popisky ji zavře.</summary>
-	private void ShowDetail(DrawnLabel? label)
+	/// <summary>
+	/// Kartička s detailem místa. Přišpendlené (klepnutím) drží, dokud ho uživatel nepustí;
+	/// nepřišpendlené (podržením v kroužku) zmizí, jakmile kroužek z místa sjede.
+	/// </summary>
+	private void ShowDetail(DrawnLabel? label, bool pin)
 	{
-		_overlay.Highlighted = label?.Place;
+		_pinned = pin && label is not null;
+		_overlay.Highlighted = _pinned ? label!.Place : null;
 		DetailCard.IsVisible = label is not null;
 		Overlay.Invalidate();
 		if (label is null)
@@ -381,7 +406,18 @@ public partial class MainPage : ContentPage
 		DetailDescription.IsVisible = !string.IsNullOrEmpty(place.Description);
 	}
 
-	private void OnDetailClosed(object? sender, EventArgs e) => ShowDetail(null);
+	private void OnDetailClosed(object? sender, EventArgs e) => ShowDetail(null, pin: false);
+
+	private static void Vibrate()
+	{
+		try
+		{
+			HapticFeedback.Default.Perform(HapticFeedbackType.Click);
+		}
+		catch (FeatureNotSupportedException)
+		{
+		}
+	}
 
 	private void OnStatusTapped(object? sender, TappedEventArgs e) => StatusDetails.IsVisible = !StatusDetails.IsVisible;
 

@@ -56,12 +56,6 @@
             </VerticalStackLayout>
         </Border>
 
-        <!-- Záměrný kříž uprostřed: tam míří osa kamery. -->
-        <Grid HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="40" HeightRequest="40" InputTransparent="True">
-            <BoxView Color="White" HeightRequest="2" />
-            <BoxView Color="White" WidthRequest="2" />
-        </Grid>
-
         <!-- Nastavení pro ladění ze země. -->
         <VerticalStackLayout VerticalOptions="End" Margin="12,0,12,24" Spacing="8">
             <Border x:Name="HintPanel"
