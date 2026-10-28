@@ -6,31 +6,99 @@
              Shell.NavBarIsVisible="False"
              BackgroundColor="Black">
 
+    <ContentPage.Resources>
+        <Style x:Key="Readout" TargetType="Label">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="FontFamily" Value="monospace" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style x:Key="SettingLabel" TargetType="Label">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="VerticalOptions" Value="Center" />
+        </Style>
+        <Style TargetType="Entry">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="PlaceholderColor" Value="#888780" />
+            <Setter Property="BackgroundColor" Value="#33FFFFFF" />
+        </Style>
+    </ContentPage.Resources>
+
     <Grid>
         <toolkit:CameraView x:Name="Camera" />
 
-        <!-- Krok 1: jen živé hodnoty senzorů přes náhled, ať ověříme, že dávají smysl. -->
+        <GraphicsView x:Name="Overlay" InputTransparent="True" />
+
+        <!-- Živé hodnoty senzorů: kontrola, že orientace a poloha dávají smysl. -->
         <Border VerticalOptions="Start"
                 Margin="12,40,12,0"
                 Padding="12,8"
                 StrokeThickness="0"
-                BackgroundColor="#99000000">
+                BackgroundColor="#99000000"
+                InputTransparent="True">
             <Border.StrokeShape>
                 <RoundRectangle CornerRadius="10" />
             </Border.StrokeShape>
             <VerticalStackLayout Spacing="2">
-                <Label x:Name="PoseLabel" TextColor="White" FontFamily="monospace" FontSize="15" Text="Orientace: čekám…" />
-                <Label x:Name="CompassLabel" TextColor="White" FontFamily="monospace" FontSize="15" Text="Kompas: čekám…" />
-                <Label x:Name="LocationLabel" TextColor="White" FontFamily="monospace" FontSize="15" Text="GPS: čekám…" />
+                <Label x:Name="PoseLabel" Style="{StaticResource Readout}" Text="Orientace: čekám…" />
+                <Label x:Name="CompassLabel" Style="{StaticResource Readout}" Text="Kompas: čekám…" />
+                <Label x:Name="LocationLabel" Style="{StaticResource Readout}" Text="Poloha: čekám…" />
                 <Label x:Name="StatusLabel" TextColor="#FFB4B2A9" FontSize="13" IsVisible="False" />
             </VerticalStackLayout>
         </Border>
 
-        <!-- Záměrný kříž uprostřed: tam míří osa kamery, ke které se vztahují čísla nahoře. -->
+        <!-- Záměrný kříž uprostřed: tam míří osa kamery. -->
         <Grid HorizontalOptions="Center" VerticalOptions="Center" WidthRequest="40" HeightRequest="40" InputTransparent="True">
             <BoxView Color="White" HeightRequest="2" />
             <BoxView Color="White" WidthRequest="2" />
         </Grid>
+
+        <!-- Nastavení pro ladění ze země. -->
+        <VerticalStackLayout VerticalOptions="End" Margin="12,0,12,24" Spacing="8">
+            <Border x:Name="SettingsPanel"
+                    IsVisible="False"
+                    Padding="14,10"
+                    StrokeThickness="0"
+                    BackgroundColor="#CC000000">
+                <Border.StrokeShape>
+                    <RoundRectangle CornerRadius="12" />
+                </Border.StrokeShape>
+                <VerticalStackLayout Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Ruční poloha" Style="{StaticResource SettingLabel}" />
+                        <Switch x:Name="ManualPositionSwitch" Grid.Column="1" Toggled="OnSettingsChanged" />
+                    </Grid>
+                    <Entry x:Name="PositionEntry"
+                           Placeholder="50.0786189N, 14.3194294E"
+                           Keyboard="Text"
+                           Completed="OnSettingsChanged"
+                           Unfocused="OnSettingsChanged" />
+
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Label Text="Ruční výška" Style="{StaticResource SettingLabel}" />
+                        <Switch x:Name="ManualAltitudeSwitch" Grid.Column="1" Toggled="OnSettingsChanged" />
+                    </Grid>
+                    <Entry x:Name="AltitudeEntry"
+                           Placeholder="metry nad mořem"
+                           Keyboard="Numeric"
+                           Completed="OnSettingsChanged"
+                           Unfocused="OnSettingsChanged" />
+
+                    <Label x:Name="FieldOfViewLabel" Style="{StaticResource SettingLabel}" Margin="0,6,0,0" />
+                    <Slider x:Name="FieldOfViewSlider"
+                            Minimum="20"
+                            Maximum="90"
+                            ValueChanged="OnFieldOfViewChanged" />
+                </VerticalStackLayout>
+            </Border>
+
+            <Button x:Name="SettingsButton"
+                    Text="Nastavení"
+                    HorizontalOptions="End"
+                    BackgroundColor="#CC000000"
+                    TextColor="White"
+                    Clicked="OnSettingsClicked" />
+        </VerticalStackLayout>
     </Grid>
 
 </ContentPage>

@@ -1,6 +1,8 @@
 using System.Globalization;
 using CommunityToolkit.Maui.Core;
+using WindowSeat.Core.Geo;
 using WindowSeat.Core.Orientation;
+using WindowSeat.Core.Places;
 
 namespace WindowSeat.App;
 
@@ -8,17 +10,25 @@ public partial class MainPage : ContentPage
 {
 	private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
+	private readonly PlacesOverlay _overlay = new(TestPlaces.All);
+
 	private CancellationTokenSource? _cts;
+	private Location? _gps;
+	private double _declination;
+	private bool _loadingSettings;
 
 	public MainPage()
 	{
 		InitializeComponent();
+		Overlay.Drawable = _overlay;
+		LoadSettings();
 	}
 
 	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
 		_cts = new CancellationTokenSource();
+		UpdateObserver();
 
 		if (await Permissions.RequestAsync<Permissions.Camera>() == PermissionStatus.Granted)
 			await StartCameraAsync(_cts.Token);
@@ -31,7 +41,7 @@ public partial class MainPage : ContentPage
 		if (await Permissions.RequestAsync<Permissions.LocationWhenInUse>() == PermissionStatus.Granted)
 			await StartLocationAsync();
 		else
-			LocationLabel.Text = "GPS: bez oprávnění";
+			ShowStatus("Bez oprávnění k poloze funguje jen ruční poloha.");
 	}
 
 	protected override void OnDisappearing()
@@ -72,13 +82,23 @@ public partial class MainPage : ContentPage
 
 		OrientationSensor.Default.ReadingChanged += (_, e) =>
 		{
-			var pose = CameraPose.FromDeviceRotation(e.Reading.Orientation);
-			var text = string.Format(Invariant,
-				"Směr {0,5:0.0}°  výška {1,5:0.0}°  náklon {2,5:0.0}°",
-				pose.AzimuthDegrees, pose.ElevationDegrees, pose.RollDegrees);
-			MainThread.BeginInvokeOnMainThread(() => PoseLabel.Text = text);
+			var magnetic = CameraPose.FromDeviceRotation(e.Reading.Orientation);
+			MainThread.BeginInvokeOnMainThread(() => ShowPose(magnetic));
 		};
 		OrientationSensor.Default.Start(SensorSpeed.UI);
+	}
+
+	private void ShowPose(CameraPose magnetic)
+	{
+		// Senzor míří k magnetickému severu, místa máme vůči zeměpisnému.
+		var pose = magnetic with { AzimuthDegrees = (magnetic.AzimuthDegrees + _declination + 360) % 360 };
+
+		PoseLabel.Text = string.Format(Invariant,
+			"Směr {0,5:0.0}°  výška {1,5:0.0}°  náklon {2,5:0.0}°",
+			pose.AzimuthDegrees, pose.ElevationDegrees, pose.RollDegrees);
+
+		_overlay.Pose = pose;
+		Overlay.Invalidate();
 	}
 
 	private void StartCompass()
@@ -91,32 +111,118 @@ public partial class MainPage : ContentPage
 
 		Compass.Default.ReadingChanged += (_, e) =>
 		{
-			var text = string.Format(Invariant, "Kompas {0,5:0.0}° (magnetický)", e.Reading.HeadingMagneticNorth);
-			MainThread.BeginInvokeOnMainThread(() => CompassLabel.Text = text);
+			var heading = e.Reading.HeadingMagneticNorth;
+			MainThread.BeginInvokeOnMainThread(() => CompassLabel.Text = string.Format(Invariant,
+				"Kompas {0,5:0.0}° magn.  deklinace {1:+0.0;-0.0}°", heading, _declination));
 		};
 		Compass.Default.Start(SensorSpeed.UI, applyLowPassFilter: true);
 	}
 
 	private async Task StartLocationAsync()
 	{
-		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() => ShowLocation(e.Location));
+		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() =>
+		{
+			_gps = e.Location;
+			UpdateObserver();
+		});
 
 		var started = await Geolocation.Default.StartListeningForegroundAsync(
 			new GeolocationListeningRequest(GeolocationAccuracy.Best, TimeSpan.FromSeconds(1)));
 
 		if (!started)
-			LocationLabel.Text = "GPS: nelze spustit";
+			ShowStatus("GPS nelze spustit, zapni ruční polohu.");
 	}
 
-	private void ShowLocation(Location location)
+	/// <summary>Složí polohu pozorovatele z GPS a ručního nastavení.</summary>
+	private void UpdateObserver()
 	{
-		var altitude = location.Altitude is { } a ? a.ToString("0", Invariant) + " m" : "?";
-		var course = location.Course is { } c ? c.ToString("0", Invariant) + "°" : "–";
-		var speed = location.Speed is { } s ? (s * 3.6).ToString("0", Invariant) + " km/h" : "–";
+		double latitude, longitude;
+		string source;
+
+		if (AppSettings.ManualPosition)
+			(latitude, longitude, source) = (AppSettings.ManualLatitude, AppSettings.ManualLongitude, "ruční");
+		else if (_gps is not null)
+			(latitude, longitude, source) = (_gps.Latitude, _gps.Longitude, $"GPS ±{_gps.Accuracy ?? 0:0} m");
+		else
+		{
+			LocationLabel.Text = "Poloha: čekám na GPS (nebo zapni ruční)";
+			return;
+		}
+
+		double altitude;
+		string altitudeSource;
+		if (AppSettings.ManualAltitude)
+			(altitude, altitudeSource) = (AppSettings.ManualAltitudeMeters, "ruční");
+		else if (_gps?.Altitude is { } gpsAltitude)
+			(altitude, altitudeSource) = (gpsAltitude, "GPS");
+		else
+			(altitude, altitudeSource) = (AppSettings.ManualAltitudeMeters, "ruční, GPS ji nedává");
+
+		_declination = MagneticDeclination.Degrees(latitude, longitude, altitude);
+		_overlay.Observer = new GeoPoint(latitude, longitude, altitude);
+		Overlay.Invalidate();
 
 		LocationLabel.Text = string.Format(Invariant,
-			"{0:0.00000}, {1:0.00000}  ±{2:0} m\nvýška {3}  kurz {4}  {5}",
-			location.Latitude, location.Longitude, location.Accuracy ?? 0, altitude, course, speed);
+			"{0:0.00000}, {1:0.00000} ({2})\nvýška {3:0} m ({4})",
+			latitude, longitude, source, altitude, altitudeSource);
+	}
+
+	private void LoadSettings()
+	{
+		// Přepínače při nastavení hodnoty vyvolají Toggled; bez příznaku by přepsaly uložené hodnoty rozpracovaným stavem.
+		_loadingSettings = true;
+		PositionEntry.Text = string.Format(Invariant, "{0:0.0000000}, {1:0.0000000}", AppSettings.ManualLatitude, AppSettings.ManualLongitude);
+		AltitudeEntry.Text = AppSettings.ManualAltitudeMeters.ToString("0", Invariant);
+		ManualPositionSwitch.IsToggled = AppSettings.ManualPosition;
+		ManualAltitudeSwitch.IsToggled = AppSettings.ManualAltitude;
+		FieldOfViewSlider.Value = AppSettings.HorizontalFieldOfViewDegrees;
+		ApplyFieldOfView(AppSettings.HorizontalFieldOfViewDegrees);
+		_loadingSettings = false;
+	}
+
+	private void OnSettingsChanged(object? sender, EventArgs e)
+	{
+		if (_loadingSettings)
+			return;
+
+		if (CoordinateParser.TryParse(PositionEntry.Text, out var latitude, out var longitude))
+		{
+			AppSettings.ManualLatitude = latitude;
+			AppSettings.ManualLongitude = longitude;
+			PositionEntry.TextColor = Colors.White;
+		}
+		else
+			PositionEntry.TextColor = Color.FromArgb("#F09595");
+
+		if (double.TryParse(AltitudeEntry.Text?.Replace(',', '.'), NumberStyles.Float, Invariant, out var altitude))
+			AppSettings.ManualAltitudeMeters = altitude;
+
+		AppSettings.ManualPosition = ManualPositionSwitch.IsToggled;
+		AppSettings.ManualAltitude = ManualAltitudeSwitch.IsToggled;
+		UpdateObserver();
+	}
+
+	private void OnFieldOfViewChanged(object? sender, ValueChangedEventArgs e)
+	{
+		if (_loadingSettings)
+			return;
+
+		var degrees = Math.Round(e.NewValue, 1);
+		AppSettings.HorizontalFieldOfViewDegrees = degrees;
+		ApplyFieldOfView(degrees);
+	}
+
+	private void ApplyFieldOfView(double degrees)
+	{
+		FieldOfViewLabel.Text = string.Format(Invariant, "Zorný úhel na šířku: {0:0.0}°", degrees);
+		_overlay.HorizontalFieldOfViewDegrees = degrees;
+		Overlay.Invalidate();
+	}
+
+	private void OnSettingsClicked(object? sender, EventArgs e)
+	{
+		SettingsPanel.IsVisible = !SettingsPanel.IsVisible;
+		SettingsButton.Text = SettingsPanel.IsVisible ? "Hotovo" : "Nastavení";
 	}
 
 	private void ShowStatus(string message)
