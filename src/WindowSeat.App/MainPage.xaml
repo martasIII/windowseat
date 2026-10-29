@@ -186,12 +186,19 @@
                 </ScrollView>
             </Border>
 
-            <Button x:Name="SettingsButton"
-                    Text="Nastavení"
-                    HorizontalOptions="End"
-                    BackgroundColor="#CC000000"
-                    TextColor="White"
-                    Clicked="OnSettingsClicked" />
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Button x:Name="CaptureButton"
+                        Text="Snímek"
+                        BackgroundColor="#CC000000"
+                        TextColor="White"
+                        Clicked="OnCaptureClicked" />
+                <Button x:Name="SettingsButton"
+                        Grid.Column="2"
+                        Text="Nastavení"
+                        BackgroundColor="#CC000000"
+                        TextColor="White"
+                        Clicked="OnSettingsClicked" />
+            </Grid>
         </VerticalStackLayout>
     </Grid>
 

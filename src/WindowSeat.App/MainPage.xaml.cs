@@ -672,6 +672,36 @@ public partial class MainPage : ContentPage
 			.Select((level, index) => (distance: Math.Abs(level - weight), index))
 			.MinBy(x => x.distance).index;
 
+	/// <summary>Snímek obrazovky tlačítkem, bez rozmazání a zhasnutí od kombinace tlačítek telefonu.</summary>
+	private async void OnCaptureClicked(object? sender, EventArgs e)
+	{
+		// Tlačítka na snímku nepotřebujeme; schováme je na jeden snímek obrazovky.
+		CaptureButton.IsVisible = false;
+		SettingsButton.IsVisible = false;
+		await Task.Delay(120);
+
+		string? name = null;
+		try
+		{
+			name = await ScreenCapture.SaveAsync();
+		}
+		catch (Exception ex)
+		{
+			ShowStatus($"Snímek: {ex.Message}");
+		}
+		finally
+		{
+			CaptureButton.IsVisible = true;
+			SettingsButton.IsVisible = true;
+		}
+
+		if (name is not null)
+		{
+			Vibrate();
+			ShowStatus($"Snímek uložen: {name}");
+		}
+	}
+
 	private void OnWalkCalibrationClicked(object? sender, EventArgs e)
 	{
 		SettingsPanel.IsVisible = false;
