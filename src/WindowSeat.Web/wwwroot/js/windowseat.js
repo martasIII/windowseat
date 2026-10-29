@@ -31,7 +31,7 @@ window.windowSeatMeasure = (text, size) => {
 };
 
 /**
- * Spuštění po klepnutí na tlačítko (iPhone povolí senzory pohybu jen po klepnutí, a to ještě před prvním await).
+ * Spuštění po klepnutí na tlačítko (o povolení senzorů a kamery už při klepnutí požádal permissions.js).
  * Vrací, co se povedlo a co ne, ať to stránka může ukázat.
  */
 export async function start(dotnetRef, videoElement, canvasElement, statusElement) {
@@ -43,23 +43,15 @@ export async function start(dotnetRef, videoElement, canvasElement, statusElemen
 
     const result = { motion: 'ok', camera: 'ok', location: 'ok' };
 
-    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-            result.motion = await DeviceOrientationEvent.requestPermission();
-        } catch (e) {
-            result.motion = 'chyba: ' + e.message;
-        }
-    }
+    // O povolení se žádá už při klepnutí (permissions.js); jinak teď, třeba na Androidu to projde i bez klepnutí.
+    const permissions = window.windowSeatPermissions ?? window.windowSeatRequestPermissions();
+    result.motion = await permissions.motion;
 
     window.addEventListener('deviceorientation', onOrientation, true);
     window.addEventListener('deviceorientationabsolute', onAbsoluteOrientation, true);
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-            audio: false,
-        });
-        video.srcObject = stream;
+        video.srcObject = await permissions.camera;
         await video.play();
     } catch (e) {
         result.camera = 'chyba: ' + e.message;
