@@ -112,7 +112,8 @@ public static class AppSettings
         {
             // Uložená oprava mimo rozumný rozsah je pozůstatek chyby (omylem tažený prst bez stropu); zahodíme ji celou.
             var elevation = Preferences.Default.Get("CorrectionElevation", 0.0);
-            return Math.Abs(elevation) > PoseCorrection.MaxElevationDegrees
+            // Hodnota přesně na stropu je taky pozůstatek: nasčítaná náhodnými tahy, které strop jen zastavil.
+            return Math.Abs(elevation) >= PoseCorrection.MaxElevationDegrees - 0.01
                 ? PoseCorrection.None
                 : new PoseCorrection(Preferences.Default.Get("CorrectionAzimuth", 0.0), elevation);
         }

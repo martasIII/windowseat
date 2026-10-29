@@ -26,8 +26,9 @@ public sealed class HeadingFusion
     /// <summary>Jak dlouho musí kompas stabilně nesouhlasit, než mu dáme přednost.</summary>
     public static readonly TimeSpan ResyncAfter = TimeSpan.FromSeconds(5);
 
-    // Rozptyl odchylky, pod kterým kompas považujeme za stabilní (rušení cuká o desítky stupňů).
-    private const double StableSpreadDegrees = 6;
+    // Rozptyl odchylky, pod kterým kompas považujeme za stabilní. Při otáčení telefonem kompas zaostává za gyroskopem
+    // a odchylka kolísá o víc stupňů (na Letné 29. 10. o ~15°); rušení u počítače ale skáče o desítky.
+    private const double StableSpreadDegrees = 20;
 
     private readonly Queue<(DateTimeOffset Time, double Deviation)> _recent = new();
     private double? _offset;

@@ -549,9 +549,10 @@ public partial class MainPage : ContentPage
 				var halfFieldOfView = _overlay.HorizontalFieldOfViewDegrees(width, Overlay.Height) * Math.PI / 360;
 				var focalLength = width / 2 / Math.Tan(halfFieldOfView);
 
-				_correction = _dragStart.Dragged(e.TotalX, e.TotalY, focalLength);
-				HintLabel.Text = string.Format(Invariant, "Posouvám popisky: směr {0:+0.0;-0.0}°, výška {1:+0.0;-0.0}°",
-					_correction.AzimuthDegrees, _correction.ElevationDegrees);
+				// Jen do stran: svislý posun se dřív nasčítával z náhodných tahů (na Letné −10°); výšku pohledu
+				// dorovná kalibrace na cíl.
+				_correction = _dragStart.Dragged(e.TotalX, 0, focalLength);
+				HintLabel.Text = string.Format(Invariant, "Posouvám popisky: směr {0:+0.0;-0.0}°", _correction.AzimuthDegrees);
 				HintPanel.IsVisible = true;
 				break;
 

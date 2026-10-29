@@ -128,4 +128,24 @@ public class HeadingFusionTests
         Assert.True(fusion.IsLocked);
         Assert.Equal(151, heading, 1e-9);
     }
+
+    [Fact]
+    public void Heading_taken_from_a_car_compass_is_corrected_outside_even_while_turning()
+    {
+        // Případ z Letné 29. 10.: start v autě převzal směr o ~140° vedle; venku kompas nesouhlasil,
+        // ale při otáčení telefonem odchylka kolísala mezi −155° a −116°.
+        var fusion = new HeadingFusion();
+        fusion.Update(0, 340, Start);
+
+        double heading = 0;
+        for (var ms = 20; ms <= 6_000; ms += 20)
+        {
+            var turn = 30 * Math.Sin(ms / 1000.0);                   // telefon se otáčí sem a tam
+            var lag = 7 * Math.Cos(ms / 1000.0);                     // kompas za gyroskopem zaostává
+            heading = fusion.Update(turn, 200 + turn + lag, Start.AddMilliseconds(ms));
+        }
+
+        Assert.Equal(1, fusion.Resyncs);
+        Assert.InRange(((heading - (200 + 30 * Math.Sin(6.0))) % 360 + 540) % 360 - 180, -10, 10);
+    }
 }
