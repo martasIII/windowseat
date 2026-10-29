@@ -1,5 +1,6 @@
 using System.Globalization;
 using CommunityToolkit.Maui.Core;
+using WindowSeat.Core.Composition;
 using WindowSeat.Core.Geo;
 using WindowSeat.Core.Orientation;
 using WindowSeat.Core.Places;
@@ -416,12 +417,7 @@ public partial class MainPage : ContentPage
 			return;
 
 		var tapped = new ScreenPoint(position.X, position.Y);
-		var nearest = _overlay.Drawn
-			.Select(label => (label, distance: DistanceToLabel(label, tapped)))
-			.Where(x => x.distance < LabelHitRadius)
-			.OrderBy(x => x.distance)
-			.Select(x => x.label)
-			.FirstOrDefault();
+		var nearest = _overlay.LastScene?.HitTest(tapped, LabelHitRadius);
 
 		if (_calibration == CalibrationStep.Off)
 		{
@@ -442,12 +438,11 @@ public partial class MainPage : ContentPage
 		}
 
 		// Směr k cíli bereme z posledního snímku; u Slunce a Měsíce se mění s časem a polohu na Zemi nemají.
-		if (_overlay.Highlighted is not { } place || _overlay.Pose is not { } pose || _overlay.LastFrame is not { } frame
-			|| _overlay.Drawn.FirstOrDefault(d => d.Place == place) is not { } drawn)
+		if (_overlay.Highlighted is not { } place || _overlay.Pose is not { } pose || _overlay.LastScene is not { } scene
+			|| scene.Find(place) is not { } target)
 			return;
 
-		var target = drawn.LineOfSight;
-		_correction = _correction.CalibrateWith(pose, frame.Projector, tapped, target, frame.Width, frame.Height);
+		_correction = _correction.CalibrateWith(pose, scene.Projector, tapped, target.Los, scene.Width, scene.Height);
 		AppSettings.Correction = _correction;
 		ShowCorrection();
 
@@ -460,20 +455,11 @@ public partial class MainPage : ContentPage
 		SetCalibration(CalibrationStep.Off, null);
 	}
 
-	private static double DistanceToLabel(DrawnLabel label, ScreenPoint tapped)
-	{
-		// Klepnout jde na tečku u cíle i na text popisku; bereme bližší z obou (uvnitř textu je vzdálenost nula).
-		var toDot = Math.Sqrt(Math.Pow(label.Point.X - tapped.X, 2) + Math.Pow(label.Point.Y - tapped.Y, 2));
-		var dx = Math.Max(0, Math.Max(label.Bounds.Left - tapped.X, tapped.X - label.Bounds.Right));
-		var dy = Math.Max(0, Math.Max(label.Bounds.Top - tapped.Y, tapped.Y - label.Bounds.Bottom));
-		return Math.Min(toDot, Math.Sqrt(dx * dx + dy * dy));
-	}
-
 	/// <summary>
 	/// Kartička s detailem místa. Přišpendlené (klepnutím) drží, dokud ho uživatel nepustí;
 	/// nepřišpendlené (podržením v kroužku) zmizí, jakmile kroužek z místa sjede.
 	/// </summary>
-	private void ShowDetail(DrawnLabel? label, bool pin)
+	private void ShowDetail(SceneHit? label, bool pin)
 	{
 		_pinned = pin && label is not null;
 		_overlay.Highlighted = _pinned ? label!.Place : null;
@@ -484,13 +470,13 @@ public partial class MainPage : ContentPage
 
 		var place = label.Place;
 		var distance = place.Kind == PlaceKind.CelestialBody
-			? string.Format(Invariant, "{0:0}° nad obzorem", label.LineOfSight.ElevationDegrees)
-			: label.LineOfSight.DistanceMeters < 10_000
-				? string.Format(Invariant, "{0:0.0} km", label.LineOfSight.DistanceMeters / 1000)
-				: string.Format(Invariant, "{0:0} km", label.LineOfSight.DistanceMeters / 1000);
+			? string.Format(Invariant, "{0:0}° nad obzorem", label.Los.ElevationDegrees)
+			: label.Los.DistanceMeters < 10_000
+				? string.Format(Invariant, "{0:0.0} km", label.Los.DistanceMeters / 1000)
+				: string.Format(Invariant, "{0:0} km", label.Los.DistanceMeters / 1000);
 
 		DetailName.Text = place.Name;
-		DetailMeta.Text = string.Format(Invariant, "{0} · {1} · směr {2:0}°", KindNames[place.Kind], distance, label.LineOfSight.AzimuthDegrees);
+		DetailMeta.Text = string.Format(Invariant, "{0} · {1} · směr {2:0}°", KindNames[place.Kind], distance, label.Los.AzimuthDegrees);
 		DetailDescription.Text = place.Description;
 		DetailDescription.IsVisible = !string.IsNullOrEmpty(place.Description);
 
