@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/WindowSeat.App/WindowSeat.App.csproj" />
     <Project Path="src/WindowSeat.Core/WindowSeat.Core.csproj" />
+    <Project Path="src/WindowSeat.Web/WindowSeat.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/WindowSeat.Core.Tests/WindowSeat.Core.Tests.csproj" />

@@ -49,5 +49,5 @@ Android se staví na Windows i Linuxu. iOS jen na macOS.
 Místa: [Wikidata](https://www.wikidata.org) (CC0). Výška terénu: EU-DEM v1.1 (Copernicus) přes [OpenTopoData](https://www.opentopodata.org).
 
 ```bash
-dotnet run --project tools/WindowSeat.DataBuilder -- Praha 50.0880 14.4208 15 src/WindowSeat.App/Resources/Raw/places/praha.json
+dotnet run --project tools/WindowSeat.DataBuilder -- Praha 50.0880 14.4208 15 src/WindowSeat.Web/wwwroot/data/praha.json
 ```

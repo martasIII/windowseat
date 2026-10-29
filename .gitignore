@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # Lokální výchozí nastavení pro ladění (domácí poloha) – nepatří do veřejného repa.
 src/WindowSeat.App/Resources/Raw/dev-defaults.json
+
+# Lokální nastavení nástrojů.
+.claude/

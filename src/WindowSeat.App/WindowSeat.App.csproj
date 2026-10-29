@@ -28,6 +28,9 @@
 		<MauiImage Include="Resources\Images\*" />
 		<MauiFont Include="Resources\Fonts\*" />
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+
+		<!-- Offline data (katalogy míst, Vltava, mosty) leží ve webové verzi; appka si je bere odtamtud. -->
+		<MauiAsset Include="..\WindowSeat.Web\wwwroot\data\*.json" LogicalName="places\%(Filename)%(Extension)" />
 	</ItemGroup>
 
 	<ItemGroup>

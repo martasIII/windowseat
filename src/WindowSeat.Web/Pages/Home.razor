@@ -1,0 +1,49 @@
+﻿@page "/"
+@implements IAsyncDisposable
+
+<PageTitle>WindowSeat</PageTitle>
+
+<video @ref="_video" class="camera" playsinline muted autoplay></video>
+<canvas @ref="_canvas" class="overlay"></canvas>
+<div @ref="_status" class="status"></div>
+
+@if (!_started)
+{
+    <div class="start">
+        <h1>WindowSeat</h1>
+        <p>Namiř telefon na krajinu nebo město a uvidíš, co je co. Kroužkem uprostřed zaměříš místo, po chvilce se ukáže detail.</p>
+        <p class="small">Potřebuje kameru, polohu a senzory pohybu. Nic se nikam neposílá.</p>
+        @if (_loadError is not null)
+        {
+            <p class="error">@_loadError</p>
+        }
+        <button @onclick="StartAsync" disabled="@(!_dataLoaded)">@(_dataLoaded ? "Spustit" : "Načítám data…")</button>
+    </div>
+}
+else if (_startProblems is not null)
+{
+    <div class="problems" @onclick="() => _startProblems = null">@_startProblems</div>
+}
+
+@if (_detail is { } detail)
+{
+    <div class="card">
+        <button class="close" @onclick="CloseDetail" aria-label="Zavřít">✕</button>
+        <h2>@detail.Place.Name</h2>
+        <p class="meta">@DetailMeta(detail)</p>
+        @if (!string.IsNullOrEmpty(detail.Place.Description))
+        {
+            <p>@detail.Place.Description</p>
+        }
+        <div class="actions">
+            @if (detail.Place.WikipediaUrl is { } wiki)
+            {
+                <a href="@wiki" target="_blank" rel="noopener">Wikipedie</a>
+            }
+            @if (detail.Place.Kind != WindowSeat.Core.Places.PlaceKind.CelestialBody)
+            {
+                <a href="@NavigateUrl(detail.Place)" target="_blank" rel="noopener">Navigovat</a>
+            }
+        </div>
+    </div>
+}
