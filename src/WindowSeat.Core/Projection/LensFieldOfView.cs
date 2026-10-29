@@ -14,16 +14,18 @@ public readonly record struct LensFieldOfView(double LongSideDegrees, double Sho
     }
 
     /// <summary>
-    /// Vodorovný zorný úhel přes šířku obrazovky na výšku, když náhled vyplní celou plochu a přečnívající okraje ořízne.
-    /// Delší strana snímače jde na výšku obrazovky.
+    /// Vodorovný zorný úhel přes šířku obrazovky, když náhled vyplní celou plochu a přečnívající okraje ořízne.
+    /// Delší strana snímače jde podél delší strany obrazovky (na výšku svisle, na šířku vodorovně).
     /// </summary>
     public double VisibleHorizontalDegrees(double viewWidth, double viewHeight)
     {
         var halfShort = Math.Tan(ToRadians(ShortSideDegrees) / 2);
         var halfLong = Math.Tan(ToRadians(LongSideDegrees) / 2);
 
-        // Užší obrazovka než snímek: výška se vejde celá a po stranách se ořízne.
-        var halfVisible = Math.Min(halfShort, halfLong * viewWidth / viewHeight);
+        // Na výšku: výška pojme delší stranu a po stranách se ořízne. Na šířku naopak.
+        var halfVisible = viewWidth <= viewHeight
+            ? Math.Min(halfShort, halfLong * viewWidth / viewHeight)
+            : Math.Min(halfLong, halfShort * viewWidth / viewHeight);
         return 2 * Math.Atan(halfVisible) * 180 / Math.PI;
     }
 

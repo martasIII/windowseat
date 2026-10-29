@@ -34,4 +34,13 @@ public class LensFieldOfViewTests
 
         Assert.Equal(52, lens.VisibleHorizontalDegrees(1000, 1000), 1e-9);
     }
+
+    [Fact]
+    public void Landscape_screen_shows_the_long_side_across()
+    {
+        var lens = new LensFieldOfView(LongSideDegrees: 66, ShortSideDegrees: 52);
+
+        // Telefon na šířku (webová verze se otočí s ním): přes šířku je delší strana snímače, nahoře a dole se ořízne.
+        Assert.Equal(66, lens.VisibleHorizontalDegrees(2408, 1080), 1e-9);
+    }
 }

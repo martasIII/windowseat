@@ -110,17 +110,35 @@ function onAbsoluteOrientation(e) {
         compass = quaternion(e.alpha, e.beta, e.gamma);
 }
 
-/** Čtveřice z úhlů alfa, beta, gama (pořadí Z-X'-Y'' podle specifikace W3C); výsledek telefon → svět. */
+/**
+ * Čtveřice z úhlů alfa, beta, gama (pořadí Z-X'-Y'' podle specifikace W3C); výsledek obrazovka → svět.
+ * Senzory dávají natočení telefonu; když prohlížeč stránku otočí na šířku, osy obrazovky jsou vůči telefonu
+ * pootočené o úhel obrazovky, a ten se tu odečte.
+ */
 function quaternion(alpha, beta, gamma) {
     const d = Math.PI / 180;
     const x = beta * d / 2, y = gamma * d / 2, z = alpha * d / 2;
     const cx = Math.cos(x), cy = Math.cos(y), cz = Math.cos(z);
     const sx = Math.sin(x), sy = Math.sin(y), sz = Math.sin(z);
-    return [
+    const device = [
         sx * cy * cz - cx * sy * sz,
         cx * sy * cz + sx * cy * sz,
         cx * cy * sz + sx * sy * cz,
         cx * cy * cz - sx * sy * sz,
+    ];
+
+    const angle = (screen.orientation?.angle ?? window.orientation ?? 0) * d;
+    return multiply(device, [0, 0, Math.sin(-angle / 2), Math.cos(-angle / 2)]);
+}
+
+/** Součin čtveřic [x, y, z, w]: nejdřív b, pak a. */
+function multiply(a, b) {
+    const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
+    return [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
     ];
 }
 
