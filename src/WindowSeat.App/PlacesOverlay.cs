@@ -464,8 +464,13 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             ? $"{focused.Los.ElevationDegrees:0}° nad obzorem"
             : Distance(focused.Los);
 
-        canvas.FontSize = FocusFontSize;
-        DrawOutlinedText(canvas, place.Name, centre.X, centre.Y + RingRadius + 28, HorizontalAlignment.Center, Color.FromArgb("#712B13"), FocusFontSize);
+        // Dlouhý název („Kostel Panny Marie Vítězné na Bílé Hoře“) zmenšíme, aby se vešel na šířku obrazovky.
+        var fitWidth = screenWidth - 32;
+        var nameWidth = TextWidth(canvas, place.Name, FocusFontSize);
+        var nameSize = nameWidth > fitWidth ? Math.Max(13, FocusFontSize * fitWidth / nameWidth) : FocusFontSize;
+
+        canvas.FontSize = nameSize;
+        DrawOutlinedText(canvas, place.Name, centre.X, centre.Y + RingRadius + 28, HorizontalAlignment.Center, Color.FromArgb("#712B13"), nameSize);
         canvas.FontSize = FontSize;
         DrawOutlinedText(canvas, meta, centre.X, centre.Y + RingRadius + 50, HorizontalAlignment.Center, Colors.Black, FontSize);
 
