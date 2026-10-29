@@ -15,25 +15,29 @@ namespace WindowSeat.App;
 /// </summary>
 public static class ScreenCapture
 {
-    /// <summary>Uloží snímek a vrátí jeho název, nebo <c>null</c>, když se nepovedl.</summary>
+    /// <summary>Uloží snímek a vrátí jeho název; když se nepovede, vyhodí výjimku s důvodem (appka ho ukáže).</summary>
     /// <param name="cameraHandler">Ovladač náhledu kamery; z něj se vezme aktuální obraz.</param>
-    public static async Task<string?> SaveAsync(IViewHandler? cameraHandler)
+    public static async Task<string> SaveAsync(IViewHandler? cameraHandler)
     {
 #if ANDROID
         if (Platform.CurrentActivity?.Window is not { } window || window.DecorView is not { Width: > 0 } view)
-            return null;
+            throw new InvalidOperationException("okno appky není k dispozici");
 
         using var overlay = Bitmap.CreateBitmap(view.Width, view.Height, Bitmap.Config.Argb8888!)!;
         var copied = new TaskCompletionSource<bool>();
         PixelCopy.Request(window, overlay, new CopyListener(copied), new Handler(Looper.MainLooper!));
         if (!await copied.Task)
-            return null;
+            throw new InvalidOperationException("kopie obrazovky se nepovedla");
 
         using var bitmap = Bitmap.CreateBitmap(view.Width, view.Height, Bitmap.Config.Argb8888!)!;
         using (var canvas = new Canvas(bitmap))
         {
             canvas.DrawColor(Android.Graphics.Color.Black);
-            if (cameraHandler?.PlatformView is AndroidX.Camera.View.PreviewView preview && preview.Bitmap is { } frame)
+            if (cameraHandler?.PlatformView is not AndroidX.Camera.View.PreviewView preview)
+                throw new InvalidOperationException("náhled kamery nenalezen");
+            if (preview.Bitmap is not { } frame)
+                throw new InvalidOperationException("kamera nedala obraz");
+
             {
                 var location = new int[2];
                 preview.GetLocationInWindow(location);
@@ -53,19 +57,19 @@ public static class ScreenCapture
         var resolver = Platform.CurrentActivity!.ContentResolver!;
         var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri!, values);
         if (uri is null)
-            return null;
+            throw new InvalidOperationException("galerie odmítla uložení");
 
         await using (var stream = resolver.OpenOutputStream(uri))
         {
             if (stream is null)
-                return null;
+                throw new InvalidOperationException("do galerie nejde zapisovat");
             await bitmap.CompressAsync(Bitmap.CompressFormat.Jpeg!, 92, stream);
         }
 
         return name;
 #else
         await Task.CompletedTask;
-        return null;
+        throw new PlatformNotSupportedException("snímek zatím jen na Androidu");
 #endif
     }
 

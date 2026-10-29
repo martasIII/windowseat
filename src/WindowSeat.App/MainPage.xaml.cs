@@ -687,7 +687,7 @@ public partial class MainPage : ContentPage
 		}
 		catch (Exception ex)
 		{
-			ShowStatus($"Snímek: {ex.Message}");
+			ShowStatus($"Snímek se nepovedl: {ex.Message}");
 		}
 		finally
 		{
