@@ -171,6 +171,7 @@
                             ValueChanged="OnFieldOfViewChanged" />
 
                     <Label x:Name="CorrectionLabel" Style="{StaticResource SettingLabel}" Margin="0,6,0,0" />
+                    <Button Text="Kalibrovat chůzí (bez kompasu)" Clicked="OnWalkCalibrationClicked" />
                     <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
                         <Button Text="Kalibrovat na cíl" Clicked="OnCalibrateClicked" />
                         <Button Grid.Column="1" Text="Zrušit opravu" Clicked="OnResetCorrectionClicked"

@@ -44,7 +44,13 @@ public partial class MainPage : ContentPage
 	private int _lastResyncs;
 
 	// Kalibrace platí na místě, kde vznikla; po odchodu dál (z domova ven) se směr zase řídí kompasem.
-	private const double LockRadiusMeters = 50;
+	// Ruční kalibrace mohla vzniknout doma u počítače, proto jen 50 m; kalibrace chůzí je z venku a spolehlivá.
+	private const double ManualLockRadiusMeters = 50;
+	private const double WalkLockRadiusMeters = 500;
+	private double _lockRadius = ManualLockRadiusMeters;
+
+	private readonly WalkCalibration _walk = new();
+	private bool _walking;
 	private double _lastGyroAzimuth;
 	private double _lastFusedAzimuth;
 
@@ -95,6 +101,8 @@ public partial class MainPage : ContentPage
 		Geolocation.Default.LocationChanged += (_, e) => MainThread.BeginInvokeOnMainThread(() =>
 		{
 			_gps = e.Location;
+			if (_walking && !AppSettings.ManualPosition)
+				OnWalkFix(e.Location);
 
 			// Kurz má smysl jen v pohybu; při stání si necháme poslední platný.
 			if (e.Location.Course is { } course && e.Location.Speed is > 2)
@@ -229,6 +237,9 @@ public partial class MainPage : ContentPage
 		_lastGyroAzimuth = gyro.AzimuthDegrees;
 		_lastFusedAzimuth = _fusion.Update(gyro.AzimuthDegrees, compassAzimuth, reading.Timestamp);
 
+		if (_walking)
+			_walk.AddHeading(_lastFusedAzimuth, gyro.ElevationDegrees);
+
 		// Směr se srovnal podle kompasu: stará oprava směru z kalibrace už neplatí, výška pohledu ano.
 		if (_fusion.Resyncs != _lastResyncs)
 		{
@@ -324,7 +335,7 @@ public partial class MainPage : ContentPage
 		_declination = MagneticDeclination.Degrees(latitude, longitude, altitude);
 
 		if (_fusion.IsLocked && _lockedAt is { } lockedAt
-			&& LineOfSight.GroundDistance(lockedAt, new GeoPoint(latitude, longitude)) > LockRadiusMeters)
+			&& LineOfSight.GroundDistance(lockedAt, new GeoPoint(latitude, longitude)) > _lockRadius)
 		{
 			_fusion.Unlock();
 			_lockedAt = null;
@@ -433,6 +444,7 @@ public partial class MainPage : ContentPage
 		// Po kalibraci už kompasu nevěříme; směr drží gyroskop od současné hodnoty.
 		_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth);
 		_lockedAt = _overlay.Observer;
+		_lockRadius = ManualLockRadiusMeters;
 
 		_overlay.Highlighted = null;
 		SetCalibration(CalibrationStep.Off, null);
@@ -560,6 +572,7 @@ public partial class MainPage : ContentPage
 				AppSettings.Correction = _correction;
 				_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth);
 		_lockedAt = _overlay.Observer;
+		_lockRadius = ManualLockRadiusMeters;
 				ShowCorrection();
 				HintPanel.IsVisible = _calibration != CalibrationStep.Off;
 				Vibrate();
@@ -659,6 +672,46 @@ public partial class MainPage : ContentPage
 			.Select((level, index) => (distance: Math.Abs(level - weight), index))
 			.MinBy(x => x.distance).index;
 
+	private void OnWalkCalibrationClicked(object? sender, EventArgs e)
+	{
+		SettingsPanel.IsVisible = false;
+		SettingsButton.Text = "Nastavení";
+		_walk.Clear();
+		_walking = true;
+		HintLabel.Text = AppSettings.ManualPosition
+			? "Kalibrace chůzí potřebuje GPS: vypni v Nastavení ruční polohu."
+			: string.Format(Invariant, "Jdi rovně aspoň {0:0} m, telefon kamerou směrem chůze a zhruba vodorovně.", WalkCalibration.RequiredDistanceMeters);
+		HintPanel.IsVisible = true;
+	}
+
+	/// <summary>Kalibrace chůzí: směr chůze z GPS proti tomu, kam podle appky míří kamera.</summary>
+	private void OnWalkFix(Location location)
+	{
+		var result = _walk.AddFix(new GeoPoint(location.Latitude, location.Longitude), location.Accuracy);
+		switch (result.Status)
+		{
+			case WalkStatus.Walking:
+				HintLabel.Text = string.Format(Invariant, "Jdi rovně, telefon kamerou dopředu… {0:0} / {1:0} m",
+					result.DistanceMeters, WalkCalibration.RequiredDistanceMeters);
+				break;
+
+			case WalkStatus.Restarted:
+				HintLabel.Text = result.Reason + " Pokračuj, počítám znovu.";
+				break;
+
+			case WalkStatus.Done:
+				// Směr podle chůze platí, kompasu přestaneme věřit; stará oprava směru se tím nahrazuje.
+				_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth + result.CorrectionDegrees);
+				_lockedAt = new GeoPoint(location.Latitude, location.Longitude);
+				_lockRadius = WalkLockRadiusMeters;
+				_walking = false;
+				HintPanel.IsVisible = false;
+				Vibrate();
+				ResetHeadingCorrection(string.Format(Invariant, "Směr zkalibrován chůzí, kompas byl vedle o {0:+0;-0}°.", result.CorrectionDegrees));
+				break;
+		}
+	}
+
 	private void ResetHeadingCorrection(string message)
 	{
 		_correction = new PoseCorrection(0, _correction.ElevationDegrees);
@@ -669,6 +722,8 @@ public partial class MainPage : ContentPage
 
 	private void OnCalibrationCancelled(object? sender, EventArgs e)
 	{
+		_walking = false;
+		_walk.Clear();
 		_overlay.Highlighted = null;
 		SetCalibration(CalibrationStep.Off, null);
 	}
