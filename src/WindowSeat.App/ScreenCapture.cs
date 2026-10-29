@@ -10,23 +10,39 @@ namespace WindowSeat.App;
 
 /// <summary>
 /// Snímek obrazovky přímo z appky: záběr kamery i s popisky, uložený do galerie (Pictures/WindowSeat).
-/// Náhled kamery je samostatná plocha mimo běžné vykreslování, proto kopírujeme obsah okna systémem (PixelCopy)
-/// stejně jako systémový screenshot; obyčejné vykreslení appky do obrázku by místo kamery dalo černo.
+/// Náhled kamery je samostatná plocha mimo okno appky; kopie okna (PixelCopy) má na jeho místě jen průhlednou
+/// „díru“. Proto skládáme dvě vrstvy: dospod aktuální snímek z náhledu kamery, navrch kopii okna s popisky.
 /// </summary>
 public static class ScreenCapture
 {
     /// <summary>Uloží snímek a vrátí jeho název, nebo <c>null</c>, když se nepovedl.</summary>
-    public static async Task<string?> SaveAsync()
+    /// <param name="cameraHandler">Ovladač náhledu kamery; z něj se vezme aktuální obraz.</param>
+    public static async Task<string?> SaveAsync(IViewHandler? cameraHandler)
     {
 #if ANDROID
         if (Platform.CurrentActivity?.Window is not { } window || window.DecorView is not { Width: > 0 } view)
             return null;
 
-        using var bitmap = Bitmap.CreateBitmap(view.Width, view.Height, Bitmap.Config.Argb8888!)!;
+        using var overlay = Bitmap.CreateBitmap(view.Width, view.Height, Bitmap.Config.Argb8888!)!;
         var copied = new TaskCompletionSource<bool>();
-        PixelCopy.Request(window, bitmap, new CopyListener(copied), new Handler(Looper.MainLooper!));
+        PixelCopy.Request(window, overlay, new CopyListener(copied), new Handler(Looper.MainLooper!));
         if (!await copied.Task)
             return null;
+
+        using var bitmap = Bitmap.CreateBitmap(view.Width, view.Height, Bitmap.Config.Argb8888!)!;
+        using (var canvas = new Canvas(bitmap))
+        {
+            canvas.DrawColor(Android.Graphics.Color.Black);
+            if (cameraHandler?.PlatformView is AndroidX.Camera.View.PreviewView preview && preview.Bitmap is { } frame)
+            {
+                var location = new int[2];
+                preview.GetLocationInWindow(location);
+                canvas.DrawBitmap(frame, location[0], location[1], null);
+                frame.Recycle();
+            }
+
+            canvas.DrawBitmap(overlay, 0, 0, null);
+        }
 
         var name = $"WindowSeat_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
         var values = new ContentValues();

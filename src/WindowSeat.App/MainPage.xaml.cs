@@ -683,7 +683,7 @@ public partial class MainPage : ContentPage
 		string? name = null;
 		try
 		{
-			name = await ScreenCapture.SaveAsync();
+			name = await ScreenCapture.SaveAsync(Camera.Handler);
 		}
 		catch (Exception ex)
 		{
