@@ -6,7 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>WindowSeat</title>
-    <base href="/" />
+    <!-- Na GitHub Pages běží web v podadresáři /windowseat/, lokálně v kořeni. -->
+    <script>document.write('<base href="' + (location.pathname.startsWith('/windowseat/') ? '/windowseat/' : '/') + '" />');</script>
     <link rel="preload" id="webassembly" />
     <link rel="stylesheet" href="css/app.css" />
     <!-- If you add any scoped CSS files, uncomment the following to load them
