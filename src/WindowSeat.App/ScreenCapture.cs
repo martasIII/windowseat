@@ -48,11 +48,11 @@ public static class ScreenCapture
             canvas.DrawBitmap(overlay, 0, 0, null);
         }
 
-        var name = $"WindowSeat_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
+        var name = $"Lookabout_{DateTime.Now:yyyyMMdd_HHmmss}.jpg";
         var values = new ContentValues();
         values.Put(MediaStore.IMediaColumns.DisplayName, name);
         values.Put(MediaStore.IMediaColumns.MimeType, "image/jpeg");
-        values.Put(MediaStore.IMediaColumns.RelativePath, "Pictures/WindowSeat");
+        values.Put(MediaStore.IMediaColumns.RelativePath, "Pictures/Lookabout");
 
         var resolver = Platform.CurrentActivity!.ContentResolver!;
         var uri = resolver.Insert(MediaStore.Images.Media.ExternalContentUri!, values);

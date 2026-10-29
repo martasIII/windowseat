@@ -1,12 +1,12 @@
 # Zásobník nápadů
 
-Co nás napadlo a na co zatím nedošlo. Vlajkový projekt je WindowSeat; nápady, které využijí jeho engine
-(promítání míst, čar a ploch přes kameru), jsou jeho budoucí vrstvy. Ostatní čekají, až bude WindowSeat venku.
+Co nás napadlo a na co zatím nedošlo. Vlajkový projekt je Lookabout; nápady, které využijí jeho engine
+(promítání míst, čar a ploch přes kameru), jsou jeho budoucí vrstvy. Ostatní čekají, až bude Lookabout venku.
 
-## Vrstvy a funkce WindowSeat
+## Vrstvy a funkce Lookabout
 
-- **Webová verze (Blazor WebAssembly, PWA)**: rozhodnuto 29. 10. 2026. Odkaz pro testery a QR kódy bez instalace,
-  bez iOS buildu přes Mac. Nejdřív přesunout skládání scény z MAUI do `WindowSeat.Core`.
+- ~~**Webová verze (Blazor WebAssembly, PWA)**~~: hotovo 29. 10. 2026, běží na GitHub Pages. Zbývá dohnat appku:
+  zoom dvěma prsty, kalibrace na Měsíc a Slunce a chůzí, nastavení vrstev, přesná deklinace (WMM) a výška terénu.
 - **Sdílení obrázku s popisky** přes systémovou nabídku telefonu (Web Share API): soukromě, nic se nenahrává,
   jemná značka s adresou v rohu.
 - **Selfie s popisky toho, co je za tebou**: přední kamera, otočený směr pohledu.
@@ -31,11 +31,13 @@ Co nás napadlo a na co zatím nedošlo. Vlajkový projekt je WindowSeat; nápad
 - **Zakázky v cestovním ruchu**: hrady, muzea, regiony; appka jako vizitka.
 - Šíření bez obchodování: Reddit, Show HN, Product Hunt; sdílené obrázky jako pozvánka.
 
-## Mimo WindowSeat
+## Mimo Lookabout
 
 - **Skupinová poloha na výlet nebo na sjezdovce** (čundr, „kde je máma“): dočasná skupina bez účtů. Pozor: web neumí
   polohu na pozadí, potřebuje nativní appku a server; silná konkurence zdarma (WhatsApp, Find My, Life360).
 
 ## Název
 
-Pracovně WindowSeat. Kandidáti: Rozhled, Lookabout, WhatsThere (domény obsazené), Okolo, Skyline Lens.
+Pracovně **Lookabout** (od 30. 10. 2026, dřív WindowSeat). Navenek (aplikace, web, repo) se jmenuje Lookabout,
+kód zůstává `WindowSeat.*`, dokud jméno není konečné. Domény lookabout.app a .dev jsou obsazené.
+Další kandidáti: Rozhled, WhatsThere (domény obsazené), Okolo, Skyline Lens.

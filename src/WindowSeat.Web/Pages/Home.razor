@@ -1,7 +1,7 @@
 ﻿@page "/"
 @implements IAsyncDisposable
 
-<PageTitle>WindowSeat</PageTitle>
+<PageTitle>Lookabout</PageTitle>
 
 <video @ref="_video" class="camera" playsinline muted autoplay></video>
 <canvas @ref="_canvas" class="overlay"></canvas>
@@ -10,7 +10,7 @@
 @if (!_started)
 {
     <div class="start">
-        <h1>WindowSeat</h1>
+        <h1>Lookabout</h1>
         <p>Namiř telefon na krajinu nebo město a uvidíš, co je co. Kroužkem uprostřed zaměříš místo, po chvilce se ukáže detail.</p>
         <p class="small">Potřebuje kameru, polohu a senzory pohybu. Nic se nikam neposílá.</p>
         @if (_loadError is not null)

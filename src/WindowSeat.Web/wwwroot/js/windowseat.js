@@ -1,4 +1,4 @@
-// Prohlížečová vrstva WindowSeat: kamera, senzory, GPS, dotyk a kreslení scény na plátno.
+// Prohlížečová vrstva Lookabout: kamera, senzory, GPS, dotyk a kreslení scény na plátno.
 // Co a kam nakreslit, počítá C# (SceneComposer ze sdílené knihovny); tady jen vstupy a kreslení.
 
 let dotnet = null;

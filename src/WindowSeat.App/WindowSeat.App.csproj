@@ -13,7 +13,7 @@
 		<Nullable>enable</Nullable>
 		<MauiXamlInflator>SourceGen</MauiXamlInflator>
 
-		<ApplicationTitle>WindowSeat</ApplicationTitle>
+		<ApplicationTitle>Lookabout</ApplicationTitle>
 		<ApplicationId>dev.martinhajek.windowseat</ApplicationId>
 		<ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
 		<ApplicationVersion>1</ApplicationVersion>
