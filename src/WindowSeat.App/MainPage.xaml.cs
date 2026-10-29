@@ -397,7 +397,17 @@ public partial class MainPage : ContentPage
 	{
 		SettingsPanel.IsVisible = false;
 		SettingsButton.Text = "Nastavení";
-		SetCalibration(CalibrationStep.PickLabel, "Klepni na popisek místa, které vidíš.");
+
+		// Co je v kroužku, je cíl kalibrace; zbývá jen klepnout na skutečné místo. Jinak nejdřív vybrat ikonku.
+		if (_overlay.Focused is { } focused)
+		{
+			_overlay.Highlighted = focused;
+			SetCalibration(CalibrationStep.PickTarget, $"Klepni přesně na skutečné místo: {focused.Name}.");
+		}
+		else
+		{
+			SetCalibration(CalibrationStep.PickLabel, "Najeď kroužkem na ikonku cíle (nebo na ni klepni).");
+		}
 	}
 
 	private void OnOverlayTapped(object? sender, TappedEventArgs e)
