@@ -40,6 +40,11 @@ public partial class MainPage : ContentPage
 	private bool _pinned;
 	private Place? _detailPlace;
 	private PoseCorrection _dragStart;
+	private GeoPoint? _lockedAt;
+	private int _lastResyncs;
+
+	// Kalibrace platí na místě, kde vznikla; po odchodu dál (z domova ven) se směr zase řídí kompasem.
+	private const double LockRadiusMeters = 50;
 	private double _lastGyroAzimuth;
 	private double _lastFusedAzimuth;
 
@@ -224,6 +229,13 @@ public partial class MainPage : ContentPage
 		_lastGyroAzimuth = gyro.AzimuthDegrees;
 		_lastFusedAzimuth = _fusion.Update(gyro.AzimuthDegrees, compassAzimuth, reading.Timestamp);
 
+		// Směr se srovnal podle kompasu: stará oprava směru z kalibrace už neplatí, výška pohledu ano.
+		if (_fusion.Resyncs != _lastResyncs)
+		{
+			_lastResyncs = _fusion.Resyncs;
+			ResetHeadingCorrection("Směr srovnán podle kompasu.");
+		}
+
 		var mode = AppSettings.HeadingMode;
 		var compassDisturbed = Math.Abs(_fusion.CompassDeviationDegrees) > HeadingFusion.DisturbanceThresholdDegrees;
 		CameraPose pose;
@@ -310,6 +322,14 @@ public partial class MainPage : ContentPage
 		var (altitude, altitudeSource) = ObserverAltitude(latitude, longitude);
 
 		_declination = MagneticDeclination.Degrees(latitude, longitude, altitude);
+
+		if (_fusion.IsLocked && _lockedAt is { } lockedAt
+			&& LineOfSight.GroundDistance(lockedAt, new GeoPoint(latitude, longitude)) > LockRadiusMeters)
+		{
+			_fusion.Unlock();
+			_lockedAt = null;
+			ResetHeadingCorrection("Kalibrace z jiného místa zrušena, směr znovu podle kompasu.");
+		}
 		_overlay.Observer = new GeoPoint(latitude, longitude, altitude);
 		Overlay.Invalidate();
 
@@ -412,6 +432,7 @@ public partial class MainPage : ContentPage
 
 		// Po kalibraci už kompasu nevěříme; směr drží gyroskop od současné hodnoty.
 		_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth);
+		_lockedAt = _overlay.Observer;
 
 		_overlay.Highlighted = null;
 		SetCalibration(CalibrationStep.Off, null);
@@ -537,6 +558,7 @@ public partial class MainPage : ContentPage
 			case GestureStatus.Completed:
 				AppSettings.Correction = _correction;
 				_fusion.LockTo(_lastGyroAzimuth, _lastFusedAzimuth);
+		_lockedAt = _overlay.Observer;
 				ShowCorrection();
 				HintPanel.IsVisible = _calibration != CalibrationStep.Off;
 				Vibrate();
@@ -635,6 +657,14 @@ public partial class MainPage : ContentPage
 		LayerWeights.Levels
 			.Select((level, index) => (distance: Math.Abs(level - weight), index))
 			.MinBy(x => x.distance).index;
+
+	private void ResetHeadingCorrection(string message)
+	{
+		_correction = new PoseCorrection(0, _correction.ElevationDegrees);
+		AppSettings.Correction = _correction;
+		ShowCorrection();
+		ShowStatus(message);
+	}
 
 	private void OnCalibrationCancelled(object? sender, EventArgs e)
 	{

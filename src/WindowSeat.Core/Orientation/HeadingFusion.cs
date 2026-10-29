@@ -4,8 +4,14 @@ namespace WindowSeat.Core.Orientation;
 /// Spojuje gyroskop a kompas. Gyroskop přesně měří otáčení, ale neví, kde je sever, a pomalu ujíždí;
 /// kompas sever zná, ale skáče u kovu a elektroniky. Směr proto sleduje gyroskop a ke kompasu se jen
 /// pomalu dotahuje; velké odchylky kompasu bere jako rušení a skoro nevěří. Po kalibraci na známý cíl
-/// se kompas odpojí úplně.
+/// se kompas odpojí.
 /// </summary>
+/// <remarks>
+/// Bez zámku platí výjimka: když kompas nesouhlasí dlouho, hodně a přitom stabilně, chyba není v kompasu, ale v nás
+/// (start doma u počítače s rozhozeným kompasem a pak cesta ven). Rušení u kovu kompasem cuká, tohle ne; směr se pak
+/// srovná podle kompasu hned, ne až za minuty. Zámek z kalibrace tahle výjimka neruší: na ocelové rozhledně je kompas
+/// vedle stabilně a kalibrace má platit. Zámek uvolní appka, když se člověk od místa kalibrace vzdálí.
+/// </remarks>
 public sealed class HeadingFusion
 {
     /// <summary>Za jak dlouho se směr dotáhne ke kompasu (zhruba ze dvou třetin), když kompas sedí.</summary>
@@ -17,8 +23,18 @@ public sealed class HeadingFusion
     // Rušenému kompasu věříme desetkrát méně; když odchylka trvá, směr se k němu stejně časem dotáhne.
     private const double DisturbedWeight = 0.1;
 
+    /// <summary>Jak dlouho musí kompas stabilně nesouhlasit, než mu dáme přednost.</summary>
+    public static readonly TimeSpan ResyncAfter = TimeSpan.FromSeconds(5);
+
+    // Rozptyl odchylky, pod kterým kompas považujeme za stabilní (rušení cuká o desítky stupňů).
+    private const double StableSpreadDegrees = 6;
+
+    private readonly Queue<(DateTimeOffset Time, double Deviation)> _recent = new();
     private double? _offset;
     private DateTimeOffset? _lastUpdate;
+
+    /// <summary>Kolikrát se směr srovnal podle kompasu kvůli stabilnímu nesouhlasu; appka podle změny zruší starou kalibraci.</summary>
+    public int Resyncs { get; private set; }
 
     /// <summary>Kompas odpojený kalibrací; směr drží jen gyroskop.</summary>
     public bool IsLocked { get; private set; }
@@ -49,6 +65,15 @@ public sealed class HeadingFusion
             var deviation = SignedDifference(compass, gyroAzimuthDegrees + offset);
             CompassDeviationDegrees = deviation;
 
+            if (IsStableDisagreement(deviation, now) && !IsLocked)
+            {
+                _offset = Wrap(offset + deviation);
+                Resyncs++;
+                _recent.Clear();
+                CompassDeviationDegrees = 0;
+                return Wrap(gyroAzimuthDegrees + _offset.Value);
+            }
+
             if (!IsLocked)
             {
                 var weight = Math.Abs(deviation) > DisturbanceThresholdDegrees ? DisturbedWeight : 1;
@@ -65,10 +90,31 @@ public sealed class HeadingFusion
     {
         _offset = Wrap(trueAzimuthDegrees - gyroAzimuthDegrees);
         IsLocked = true;
+        _recent.Clear();
     }
 
-    /// <summary>Zruší kalibraci; směr se znovu pomalu dotahuje ke kompasu.</summary>
-    public void Unlock() => IsLocked = false;
+    private bool IsStableDisagreement(double deviation, DateTimeOffset now)
+    {
+        _recent.Enqueue((now, deviation));
+        while (_recent.Count > 0 && now - _recent.Peek().Time > ResyncAfter)
+            _recent.Dequeue();
+
+        // Okno musí pokrýt skoro celou dobu, odchylka v něm být pořád velká a jedním směrem, a málo kolísat.
+        var span = now - _recent.Peek().Time;
+        if (span < ResyncAfter * 0.9 || _recent.Any(r => Math.Abs(r.Deviation) <= DisturbanceThresholdDegrees))
+            return false;
+
+        var min = _recent.Min(r => r.Deviation);
+        var max = _recent.Max(r => r.Deviation);
+        return max - min <= StableSpreadDegrees && Math.Sign(min) == Math.Sign(max);
+    }
+
+    /// <summary>Zruší kalibraci; směr se znovu řídí kompasem (při stabilním nesouhlasu hned, jinak pomalu).</summary>
+    public void Unlock()
+    {
+        IsLocked = false;
+        _recent.Clear();
+    }
 
     private static double SignedDifference(double to, double from) => ((to - from) % 360 + 540) % 360 - 180;
 

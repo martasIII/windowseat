@@ -78,4 +78,54 @@ public class HeadingFusionTests
 
         Assert.Equal(15, heading, 0.5);
     }
+
+    [Fact]
+    public void After_leaving_a_bad_indoor_calibration_a_steady_compass_wins_within_seconds()
+    {
+        // Případ z Liboce 29. 10.: zámek z domova držel 102°, kompas venku stabilně ukazoval 177°.
+        // Appka zámek uvolní, když se člověk vzdálí od místa kalibrace.
+        var fusion = new HeadingFusion();
+        fusion.Update(0, 102, Start);
+        fusion.LockTo(gyroAzimuthDegrees: 0, trueAzimuthDegrees: 102);
+        fusion.Unlock();
+
+        double heading = 0;
+        for (var ms = 20; ms <= 6_000; ms += 20)
+            heading = fusion.Update(0, 177 + Math.Sin(ms / 300.0), Start.AddMilliseconds(ms));
+
+        Assert.Equal(1, fusion.Resyncs);
+        Assert.Equal(177, heading, 2.0);
+    }
+
+    [Fact]
+    public void Steady_compass_bias_on_a_steel_tower_does_not_break_the_calibration()
+    {
+        var fusion = new HeadingFusion();
+        fusion.Update(0, 180, Start);
+        fusion.LockTo(0, 151);
+
+        double heading = 0;
+        for (var ms = 20; ms <= 10_000; ms += 20)
+            heading = fusion.Update(0, 180, Start.AddMilliseconds(ms));
+
+        Assert.True(fusion.IsLocked);
+        Assert.Equal(0, fusion.Resyncs);
+        Assert.Equal(151, heading, 1e-9);
+    }
+
+    [Fact]
+    public void Jumpy_compass_near_a_computer_does_not_break_the_lock()
+    {
+        var fusion = new HeadingFusion();
+        fusion.Update(0, 180, Start);
+        fusion.LockTo(0, 151);
+
+        // Kompas u počítače skáče o desítky stupňů sem a tam.
+        double heading = 0;
+        for (var ms = 20; ms <= 10_000; ms += 20)
+            heading = fusion.Update(0, 151 + 60 * Math.Sin(ms / 150.0), Start.AddMilliseconds(ms));
+
+        Assert.True(fusion.IsLocked);
+        Assert.Equal(151, heading, 1e-9);
+    }
 }
