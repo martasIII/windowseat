@@ -7,8 +7,26 @@ namespace WindowSeat.Core.Projection;
 /// Ruční oprava pózy z kalibrace na známý cíl. Pokrývá chybu kompasu, telefon natočený
 /// vůči oknu i nepřesnou výšku pozorovatele; k póze se jen přičte.
 /// </summary>
-public readonly record struct PoseCorrection(double AzimuthDegrees, double ElevationDegrees)
+public readonly record struct PoseCorrection
 {
+    /// <summary>
+    /// Největší rozumná oprava výšky pohledu. Senzor náklonu se mýlí o jednotky stupňů, ne o desítky; víc znamená
+    /// omylem tažený prst. Bez stropu se oprava nasčítala až na −97° a appka „koukala“ do země.
+    /// </summary>
+    public const double MaxElevationDegrees = 10;
+
+    public PoseCorrection(double azimuthDegrees, double elevationDegrees)
+    {
+        AzimuthDegrees = ((azimuthDegrees + 180) % 360 + 360) % 360 - 180;
+        ElevationDegrees = Math.Clamp(elevationDegrees, -MaxElevationDegrees, MaxElevationDegrees);
+    }
+
+    /// <summary>Oprava směru, −180° až 180°.</summary>
+    public double AzimuthDegrees { get; }
+
+    /// <summary>Oprava výšky pohledu, nejvýš ±<see cref="MaxElevationDegrees"/>.</summary>
+    public double ElevationDegrees { get; }
+
     public static PoseCorrection None => default;
 
     public CameraPose ApplyTo(CameraPose pose) => pose with

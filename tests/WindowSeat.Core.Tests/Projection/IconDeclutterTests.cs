@@ -59,8 +59,9 @@ public class IconDeclutterTests
         for (var frame = 0; frame < 50; frame++)
             IconDeclutter.Arrange(items, minDistance: 26, maxShown: 60);
 
-        // 50 snímků (sekunda kreslení) s 2000 místy: na stolním počítači hluboko pod sekundu.
-        Assert.True(watch.ElapsedMilliseconds < 500, $"{watch.ElapsedMilliseconds} ms");
+        // 50 snímků (sekunda kreslení) s 2000 místy. Hlídáme řád, ne přesný čas: strop je volný,
+        // aby test nepadal na pomalém stroji v CI.
+        Assert.True(watch.ElapsedMilliseconds < 3000, $"{watch.ElapsedMilliseconds} ms");
     }
 
     private static IconDeclutter.Item<string> Item(string name, double x, double score) =>

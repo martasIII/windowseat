@@ -69,4 +69,22 @@ public class PoseCorrectionTests
         Assert.Equal(10, correction.AzimuthDegrees, 0.1);
         Assert.Equal(5, correction.ApplyTo(sensorPose).AzimuthDegrees, 0.1);
     }
+
+    [Fact]
+    public void Repeated_vertical_drags_cannot_tilt_the_view_into_the_ground()
+    {
+        // Případ z Letné 29. 10.: několik tahů prstem dolů nasčítalo opravu −97°.
+        var correction = PoseCorrection.None;
+        for (var i = 0; i < 5; i++)
+            correction = correction.Dragged(dxPixels: 0, dyPixels: -800, focalLengthPixels: 600);
+
+        Assert.Equal(-PoseCorrection.MaxElevationDegrees, correction.ElevationDegrees, 1e-9);
+    }
+
+    [Fact]
+    public void Azimuth_correction_stays_within_half_a_turn()
+    {
+        Assert.Equal(-10, new PoseCorrection(350, 0).AzimuthDegrees, 1e-9);
+        Assert.Equal(10, new PoseCorrection(-350, 0).AzimuthDegrees, 1e-9);
+    }
 }

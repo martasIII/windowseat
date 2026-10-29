@@ -44,7 +44,7 @@ public sealed class SessionRecorder
         var folder = Path.Combine(FileSystem.AppDataDirectory, "recordings");
         Directory.CreateDirectory(folder);
         CurrentFile = Path.Combine(folder, $"{DateTime.Now:yyyyMMdd-HHmmss}.jsonl");
-        _writer = new StreamWriter(CurrentFile, append: false, Encoding.UTF8) { AutoFlush = true };
+        _writer = new StreamWriter(CurrentFile, append: false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)) { AutoFlush = true };
     }
 
     public void Stop()

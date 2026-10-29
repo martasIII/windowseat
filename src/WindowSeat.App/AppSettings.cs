@@ -108,9 +108,14 @@ public static class AppSettings
     /// <summary>Oprava pózy z poslední kalibrace na známý cíl.</summary>
     public static PoseCorrection Correction
     {
-        get => new(
-            Preferences.Default.Get("CorrectionAzimuth", 0.0),
-            Preferences.Default.Get("CorrectionElevation", 0.0));
+        get
+        {
+            // Uložená oprava mimo rozumný rozsah je pozůstatek chyby (omylem tažený prst bez stropu); zahodíme ji celou.
+            var elevation = Preferences.Default.Get("CorrectionElevation", 0.0);
+            return Math.Abs(elevation) > PoseCorrection.MaxElevationDegrees
+                ? PoseCorrection.None
+                : new PoseCorrection(Preferences.Default.Get("CorrectionAzimuth", 0.0), elevation);
+        }
         set
         {
             Preferences.Default.Set("CorrectionAzimuth", value.AzimuthDegrees);
