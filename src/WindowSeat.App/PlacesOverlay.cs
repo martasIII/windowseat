@@ -431,7 +431,7 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
         {
             var box = LabelLayout.Box(placed.Anchor, placed.Level, placed.Width, LabelHeight);
             var halfWidth = (float)placed.Width / 2;
-            var x = Math.Clamp((float)placed.Anchor.X, halfWidth + 4, screenWidth - halfWidth - 4);
+            var x = InsideScreen((float)placed.Anchor.X, halfWidth, screenWidth);
 
             // Tenká čára od ikonky k názvu, aby bylo jasné, k čemu patří.
             canvas.StrokeColor = Colors.White;
@@ -441,6 +441,17 @@ public sealed class PlacesOverlay(IReadOnlyList<Place> places) : IDrawable
             DrawOutlinedText(canvas, placed.Item.Place.Name, x, (float)box.Bottom - 5, HorizontalAlignment.Center, Colors.Black, FontSize);
             _drawn.Add(new DrawnLabel(placed.Item.Place, placed.Item.Los, placed.Anchor, new RectF(x - halfWidth, (float)box.Top, (float)placed.Width, LabelHeight)));
         }
+    }
+
+    /// <summary>
+    /// Posune popisek dovnitř obrazovky. Popisek širší než obrazovka (dlouhý název na úzkém telefonu) se dá
+    /// doprostřed; obyčejný Math.Clamp by tu spadl, protože dolní mez je větší než horní.
+    /// </summary>
+    private static float InsideScreen(float x, float halfWidth, float screenWidth)
+    {
+        var min = halfWidth + 4;
+        var max = screenWidth - halfWidth - 4;
+        return min > max ? screenWidth / 2 : Math.Clamp(x, min, max);
     }
 
     private static void DrawRing(ICanvas canvas, PointF centre, Marker? focused)
